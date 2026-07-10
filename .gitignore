@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # --- Python ---
 __pycache__/
 *.py[cod]
@@ -5,35 +6,95 @@ __pycache__/
 venv/
 env/
 *.egg-info/
-.pytest_cache/
+!.yarn/plugins
+!.yarn/releases
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
 
-# --- Node / dashboard ---
-node_modules/
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# local development artifacts
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
 dist/
 .vite/
 *.local
-
-# --- Env & secrets (never commit API keys / cloud credentials) ---
-.env
-.env.*
-*.env
-secrets.*
-
-# --- Model weights (GBs — download per docs, never commit) ---
 *.gguf
 *.bin
 *.onnx
 *.safetensors
 models/weights/
-
-# --- OS / editor ---
-.DS_Store
-Thumbs.db
 .idea/
-
-# --- Internal planning docs & reference PDFs (kept local, not published) ---
-# Qualcomm-provided materials are copyrighted; internal strategy stays off the public repo.
 *.pdf
 BUILD_PLAN.md
 NeuraRoute_Adaptive_AI_Inference_Orchestrator.md
 response.md
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+>>>>>>> 8b396db (Initial commit from Create Next App)
