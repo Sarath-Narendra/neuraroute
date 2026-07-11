@@ -3,12 +3,8 @@ import type { DashboardSnapshot } from "@/components/dashboard";
 
 export default function Home() {
   const snapshot: DashboardSnapshot = {
-    connectionState: "connected",
-    connectionCopy:
-      "Engine events are streaming to the dashboard over MQTT. Disconnects will fall back to the disconnected state instead of crashing the UI.",
-    headline: "NeuraRoute operations console",
-    subheadline:
-      "A live orchestration surface for device routing, failover, metrics, and policy control. This scaffold is wired for the full dashboard story: devices, DAG, decisions, metrics, and recovery theater.",
+    headline: "Neura Route",
+    subheadline: "Simple dashboard for routing, failover, metrics, and policy control.",
     summary: [
       { label: "Devices online", value: "4", detail: "Surface, phone, Uno Q, and cloud" },
       { label: "Tasks in flight", value: "5", detail: "Parallel branches visible in the DAG" },

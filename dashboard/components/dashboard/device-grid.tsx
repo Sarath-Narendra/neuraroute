@@ -1,3 +1,5 @@
+"use client";
+
 import { DeviceTile } from "./device-tile";
 import type { DashboardDevice } from "./types";
 

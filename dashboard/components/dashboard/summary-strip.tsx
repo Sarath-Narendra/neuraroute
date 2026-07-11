@@ -1,3 +1,5 @@
+"use client";
+
 import type { MetricItem } from "./types";
 
 interface SummaryStripProps {
@@ -10,7 +12,7 @@ export function SummaryStrip({ items }: SummaryStripProps) {
       {items.map((item) => (
         <article
           key={item.label}
-          className="rounded-[24px] border border-white/10 bg-white/5 p-4 shadow-[0_18px_50px_rgba(0,0,0,0.2)] backdrop-blur"
+          className="rounded-3xl border border-white/10 bg-white/5 p-4 shadow-[0_18px_50px_rgba(0,0,0,0.2)] backdrop-blur"
         >
           <p className="text-xs uppercase tracking-[0.24em] text-zinc-400">
             {item.label}

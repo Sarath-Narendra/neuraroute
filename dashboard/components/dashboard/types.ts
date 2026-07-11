@@ -1,5 +1,3 @@
-export type ConnectionState = "connected" | "reconnecting" | "disconnected";
-
 export type DeviceStatus = "online" | "busy" | "failover" | "offline";
 
 export type PolicyMode = "speed-first" | "battery-saver" | "privacy-first";
@@ -52,8 +50,6 @@ export interface FailoverStory {
 }
 
 export interface DashboardSnapshot {
-  connectionState: ConnectionState;
-  connectionCopy: string;
   headline: string;
   subheadline: string;
   summary: MetricItem[];
