@@ -12,7 +12,7 @@
     "op": { "type": "string", "description": "one of OPS (or echo)" },
     "payload": {
       "type": "object",
-      "description": "op-specific input, e.g. {\"text\": \"...\"} or {\"from\": \"t1\"} to consume an upstream result"
+      "description": "what run_model(op, payload) receives. Always {\"inputs\": {<upstream_local_id>: <that task's result>}}; the entry task (extract_text) additionally gets {\"document\": {\"filename\", \"bytes\", \"pdf_b64\"}} — the uploaded PDF base64-encoded."
     },
     "depends_on": {
       "type": "array",

@@ -28,8 +28,9 @@ MAX_RETRIES = 6
 
 
 class Run:
-    def __init__(self, request_id, tasks):
+    def __init__(self, request_id, tasks, document=None):
         self.request_id = request_id
+        self.document = document          # the uploaded PDF descriptor fed to the entry task (t1)
         self.tasks = {}
         for t in tasks:
             t.update(status="pending", assigned=None, result=None,
@@ -54,10 +55,11 @@ class Orchestrator:
         self.runs = {}
 
     # --- start ---
-    def start_run(self, request_id):
-        run = Run(request_id, plan_request(request_id))
+    def start_run(self, request_id, document=None):
+        run = Run(request_id, plan_request(request_id), document=document)
         self.runs[request_id] = run
-        log.info("run %s started (%d tasks)", request_id, len(run.tasks))
+        log.info("run %s started (%d tasks, document=%s)", request_id, len(run.tasks),
+                 (document or {}).get("filename", "none"))
         self.emit({"type": EV_REQUEST_START, "ts": time.time(), "request_id": request_id,
                    "reason": f"{request_id}: health-report DAG (5 tasks)"})
         self._dispatch_ready(run)
@@ -78,6 +80,16 @@ class Orchestrator:
         for t in self._ready(run):
             if self._dispatch_one(run, t, busy):
                 busy.add(t["assigned"])
+
+    def _build_payload(self, run, task):
+        """What the device actually receives: upstream results keyed by their local id,
+        plus the uploaded document for the entry task (t1) so run_model has real inputs."""
+        payload = {"inputs": {run.tasks[d]["local_id"]: run.tasks[d]["result"]
+                              for d in task["depends_on"]}}
+        if not task["depends_on"]:                      # entry task -> feed it the PDF
+            payload["document"] = run.document or {"filename": "sample-health-report.pdf",
+                                                   "note": "no file uploaded"}
+        return payload
 
     def _dispatch_one(self, run, task, busy):
         choice = self.scheduler.choose_device(task, exclude=task["excluded"], busy=busy)
@@ -102,7 +114,7 @@ class Orchestrator:
 
         msg = {
             "task_id": task["task_id"], "request_id": run.request_id, "op": task["op"],
-            "payload": {"from": task["depends_on"]}, "depends_on": task["depends_on"],
+            "payload": self._build_payload(run, task), "depends_on": task["depends_on"],
             "deadline_ms": task["deadline_ms"], "privacy": task["privacy"],
             "priority": task["priority"], "assigned_device": device_id,
         }

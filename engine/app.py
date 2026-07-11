@@ -14,6 +14,7 @@ Run from repo root:
     NEURAROUTE_BROKER=192.168.1.5 NEURAROUTE_PORT=8000 python -m engine.app
 """
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -22,7 +23,7 @@ import uuid
 from contextlib import asynccontextmanager
 
 import paho.mqtt.client as mqtt
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 
 from contracts.topics import (
     BROKER_PORT, CONTRACTS_VERSION, EV_POLICY, TOPIC_EVENT, TOPIC_HEARTBEAT,
@@ -145,11 +146,36 @@ def devices():
 
 
 @app.post("/request", status_code=202)
-async def request(body: dict | None = None):
-    """Kick off an orchestrated run of the health-report DAG across live devices."""
-    request_id = (body or {}).get("request_id") or f"req-{uuid.uuid4().hex[:6]}"
-    orchestrator.start_run(request_id)
-    return {"accepted": True, "request_id": request_id}
+async def create_request(req: Request):
+    """Upload a PDF (multipart form field `file`) from the phone browser -> orchestrated DAG run.
+
+    Also accepts a JSON body or an empty body to trigger a run with no file (demo/tests) —
+    in that case the entry task gets a placeholder document descriptor.
+    """
+    document = None
+    request_id = None
+    if req.headers.get("content-type", "").startswith("multipart/form-data"):
+        form = await req.form()
+        upload = form.get("file")
+        if upload is not None and hasattr(upload, "read"):
+            data = await upload.read()
+            document = {"filename": upload.filename or "upload.pdf", "bytes": len(data),
+                        "pdf_b64": base64.b64encode(data).decode()}
+        request_id = form.get("request_id")
+    else:
+        try:
+            body = await req.json()
+        except Exception:
+            body = {}
+        request_id = (body or {}).get("request_id")
+
+    request_id = request_id or f"req-{uuid.uuid4().hex[:6]}"
+    orchestrator.start_run(request_id, document=document)
+    log.info("POST /request -> %s (file=%s)", request_id, document and document["filename"])
+    resp = {"accepted": True, "request_id": request_id}
+    if document:
+        resp["document"] = {"filename": document["filename"], "bytes": document["bytes"]}
+    return resp
 
 
 @app.post("/policy")
