@@ -59,4 +59,5 @@ yarn-error.log*
 BUILD_PLAN.md
 NeuraRoute_Adaptive_AI_Inference_Orchestrator.md
 response.md
-docs/pitch.md          # competitive demo playbook — kept local until after demos
+# competitive demo playbook — kept local until after demos
+docs/pitch.md
