@@ -1,0 +1,39 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# --- Node / dashboard ---
+node_modules/
+dist/
+.vite/
+*.local
+
+# --- Env & secrets (never commit API keys / cloud credentials) ---
+.env
+.env.*
+*.env
+secrets.*
+
+# --- Model weights (GBs — download per docs, never commit) ---
+*.gguf
+*.bin
+*.onnx
+*.safetensors
+models/weights/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+
+# --- Internal planning docs & reference PDFs (kept local, not published) ---
+# Qualcomm-provided materials are copyrighted; internal strategy stays off the public repo.
+*.pdf
+BUILD_PLAN.md
+NeuraRoute_Adaptive_AI_Inference_Orchestrator.md
+response.md
