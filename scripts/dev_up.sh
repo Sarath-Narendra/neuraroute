@@ -31,8 +31,9 @@ else
 fi
 
 export NEURAROUTE_BROKER="${NEURAROUTE_BROKER:-localhost}"
-export NEURAROUTE_PORT="${NEURAROUTE_PORT:-8000}"
+export NEURAROUTE_PORT="${NEURAROUTE_PORT:-8080}"   # 8000/8001 belong to the /infer servers
 export NEURAROUTE_CLOUD_MOCK="${NEURAROUTE_CLOUD_MOCK:-true}"
+export NEURAROUTE_REGISTRY="${NEURAROUTE_REGISTRY:-dev}"   # 'venue' -> real /infer servers
 
 started=()
 launch() {  # name  command
@@ -91,7 +92,11 @@ for cfg in cloud:cloud-01 pc:pc-01 phone:phone-01 arduino:arduino-01; do
 done
 
 echo
-echo "NeuraRoute up. Engine: http://$(ipconfig getifaddr en0 2>/dev/null || echo localhost):${NEURAROUTE_PORT}"
+echo "NeuraRoute up (registry=$NEURAROUTE_REGISTRY). Engine: http://$(ipconfig getifaddr en0 2>/dev/null || echo localhost):${NEURAROUTE_PORT}"
+if [[ "$NEURAROUTE_REGISTRY" == "venue" ]]; then
+  echo "  venue mode: laptop tier -> ${NEURAROUTE_INFER_LAPTOP_URL:-http://localhost:8000/infer}, cloud tier -> ${NEURAROUTE_INFER_CLOUD_URL:-http://localhost:8001/infer}"
+  echo "  (make sure the /infer inference servers are running separately)"
+fi
 echo "Phone app: cd mobile && npx expo start   (phone on this laptop's hotspot)"
 echo "Submit a reading:"
 echo "  curl -XPOST localhost:${NEURAROUTE_PORT}/request -H 'Content-Type: application/json' \\"

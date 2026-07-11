@@ -122,8 +122,8 @@ This starts the broker, a **mock LLM** (so no model downloads or GPU are needed)
 and all four tier agents. Then submit a reading and watch it triage:
 
 ```bash
-# a critical reading -> emergency verdict + watchdog SOS
-curl -XPOST localhost:8000/request -H 'Content-Type: application/json' \
+# a critical reading -> emergency verdict + watchdog SOS  (engine is on :8080)
+curl -XPOST localhost:8080/request -H 'Content-Type: application/json' \
      -d '{"patient_id":"P-03","vitals":{"hr":176,"spo2":79,"temp_c":37,"resp_rate":32}}'
 
 # drive the failover on stage: kill the top tier, submit again -> it routes one tier down
@@ -135,13 +135,27 @@ to the laptop's network/hotspot. It auto-detects the engine at the laptop's IP (
 if needed), shows the 10-patient board and tier status live, and raises a real OS notification on
 every emergency.
 
-## Use real models at the venue
+## Use the real models (the inference module)
 
-- **GPT (cloud tier):** `export NEURAROUTE_CLOUD_MOCK=false NEURAROUTE_CLOUD_BASE_URL=https://api.openai.com/v1 NEURAROUTE_CLOUD_API_KEY=sk-…`
-- **Local LLM (pc/phone tiers):** run LM Studio, then `export NEURAROUTE_LOCAL_BASE_URL=http://<lm-studio-ip>:1234/v1` (dev_up skips the mock LLM when this is set).
-- **UNO Q SLM + serial display:** see `arduino/README.md`.
+The engine is the **Router**; the real per-device model servers are a separate module that each
+expose `POST /infer` (laptop → GenieX/Qwen on `:8000`, cloud → Groq/Llama-70B on `:8001`). Point
+the ladder at them with **venue mode** — the tier agents call `/infer` over HTTP and map the reply
+into the phone app's schema:
 
-No contract changes are needed to swap mock → real; flip the env vars and restart.
+```bash
+export NEURAROUTE_REGISTRY=venue
+export NEURAROUTE_INFER_LAPTOP_URL=http://<laptop-ip>:8000/infer   # default localhost:8000
+export NEURAROUTE_INFER_CLOUD_URL=http://<cloud-host>:8001/infer   # default localhost:8001
+./scripts/dev_up.sh        # engine on :8080, agents bridge to the /infer servers
+```
+
+Start the inference servers separately (their repo/README). The engine, phone app, failover, and
+watchdog are unchanged — only where each tier runs inference differs. `phone`/`arduino` stay on the
+local path (`NEURAROUTE_LOCAL_BASE_URL`, e.g. LM Studio / llama.cpp) until their `/infer` servers land.
+No contract changes are needed to swap dev ↔ venue; flip `NEURAROUTE_REGISTRY` and restart.
+
+To verify the bridge with no real models, run `tools/mock_infer.py 8000 laptop` and
+`tools/mock_infer.py 8001 cloud` (they speak the exact `/infer` schema).
 
 ---
 

@@ -1,110 +1,59 @@
 """
 models/registry.py
 
-Central Model Registry — which model + adapter runs `triage` on each tier.
+Which model + adapter runs `triage` on each tier. Pick the registry with one env var:
 
-DEV_REGISTRY      -> your own laptop (everything hits the local mock / LM Studio)
-QUALCOMM_REGISTRY -> the hackathon hardware (Surface X Elite, OnePlus, Uno Q, AI Cloud)
+    NEURAROUTE_REGISTRY=dev     (default) — everything local/mock, runs on one laptop, no
+                                 real models. Local tiers hit NEURAROUTE_LOCAL_BASE_URL
+                                 (LM Studio / tools/mock_llm.py); cloud is the canned mock.
 
-Switch by changing ONE line: ACTIVE_REGISTRY = QUALCOMM_REGISTRY
+    NEURAROUTE_REGISTRY=venue   — the real inference module (Eswar's /infer servers):
+                                 laptop -> GenieX/Qwen at NEURAROUTE_INFER_LAPTOP_URL,
+                                 cloud  -> Groq/Llama-70B at NEURAROUTE_INFER_CLOUD_URL.
+                                 phone/arduino stay local until their /infer servers exist.
 
-The cloud tier's entry has type "cloud" — run_model() routes those calls through
-cloud_adapter (GPT). Everything else is local via llm_client (any OpenAI-compatible
-server: LM Studio on the laptops/phone, llama.cpp --server on the Uno Q).
+`type` drives run_model's routing: "infer_http" -> models/infer_client (POST /infer),
+"cloud" -> models/cloud_adapter (canned mock), anything else -> the local op via llm_client.
 """
+import os
+
+# The inference servers' endpoints (override per venue/network).
+INFER_LAPTOP_URL = os.environ.get("NEURAROUTE_INFER_LAPTOP_URL", "http://localhost:8000/infer")
+INFER_CLOUD_URL = os.environ.get("NEURAROUTE_INFER_CLOUD_URL", "http://localhost:8001/infer")
+
 
 # ==========================================================
-# LOCAL DEVELOPMENT (Your Laptop)
+# dev — one laptop, no real models (local mock / LM Studio)
 # ==========================================================
-
 DEV_REGISTRY = {
-
-    "surface": {
-        "triage": {
-            "model": "Phi-3 (LM Studio)",
-            "adapter": "llm_client",
-            "type": "local"
-        }
-    },
-
-    "phone": {
-        "triage": {
-            "model": "Phi-3 (LM Studio)",
-            "adapter": "llm_client",
-            "type": "local"
-        }
-    },
-
-    "arduino": {
-        "triage": {
-            "model": "Qwen2.5-0.5B (llama.cpp)",
-            "adapter": "llm_client",
-            "type": "local"
-        }
-    },
-
-    "cloud": {
-        "triage": {
-            "model": "gpt-4o-mini",
-            "adapter": "openai_cloud",
-            "type": "cloud"
-        }
-    }
+    "surface":  {"triage": {"model": "Phi-3 (LM Studio)", "adapter": "llm_client", "type": "local"}},
+    "phone":    {"triage": {"model": "Phi-3 (LM Studio)", "adapter": "llm_client", "type": "local"}},
+    "arduino":  {"triage": {"model": "Qwen2.5-0.5B (llama.cpp)", "adapter": "llm_client", "type": "local"}},
+    "cloud":    {"triage": {"model": "gpt-4o-mini (mock)", "adapter": "openai_cloud", "type": "cloud"}},
 }
 
 
 # ==========================================================
-# QUALCOMM HACKATHON HARDWARE
+# venue — the real AI-inference module (Eswar's /infer servers)
 # ==========================================================
-
-QUALCOMM_REGISTRY = {
-
-    "surface": {
-        "triage": {
-            "model": "Gemma 4 2B (LM Studio ARM64)",
-            "adapter": "llm_client",
-            "type": "local"
-        }
-    },
-
-    "phone": {
-        "triage": {
-            "model": "Qwen2.5-1.5B (llama.cpp / Termux)",
-            "adapter": "llm_client",
-            "type": "local"
-        }
-    },
-
-    "arduino": {
-        "triage": {
-            "model": "Qwen2.5-0.5B Q4 (llama.cpp on QRB2210)",
-            "adapter": "llm_client",
-            "type": "local"
-        }
-    },
-
-    "cloud": {
-        "triage": {
-            "model": "gpt-4o",
-            "adapter": "openai_cloud",
-            "type": "cloud"
-        }
-    }
+VENUE_REGISTRY = {
+    "surface":  {"triage": {"model": "Qwen3.5-2B / GenieX", "adapter": "infer_http",
+                            "type": "infer_http", "infer_url": INFER_LAPTOP_URL}},
+    # phone + arduino /infer servers are pending — keep them on the local path for now
+    "phone":    {"triage": {"model": "local SLM (llama.cpp)", "adapter": "llm_client", "type": "local"}},
+    "arduino":  {"triage": {"model": "local SLM (llama.cpp)", "adapter": "llm_client", "type": "local"}},
+    "cloud":    {"triage": {"model": "llama-3.3-70b / Groq", "adapter": "infer_http",
+                            "type": "infer_http", "infer_url": INFER_CLOUD_URL}},
 }
 
 
-# ==========================================================
-# CHANGE ONLY THIS LINE
-# ==========================================================
+_REGISTRIES = {"dev": DEV_REGISTRY, "venue": VENUE_REGISTRY}
+ACTIVE_REGISTRY = _REGISTRIES.get(os.environ.get("NEURAROUTE_REGISTRY", "dev"), DEV_REGISTRY)
 
-ACTIVE_REGISTRY = DEV_REGISTRY
 
-# At the venue simply change to:
-# ACTIVE_REGISTRY = QUALCOMM_REGISTRY
-
-# Contract device_ids (from contracts/topics.py + runtime/configs/*.yaml) mapped to
-# the registry's friendly keys, so the runtime agent can pass its raw device_id
-# (e.g. "pc-01") straight into run_model(). Friendly keys map to themselves too.
+# Contract device_ids (contracts/topics.py + runtime/configs/*.yaml) -> friendly registry keys,
+# so the agent can pass its raw device_id ("pc-01") straight into run_model(). Keys map to
+# themselves too, so callers passing "surface"/"cloud" keep working.
 DEVICE_ALIASES = {
     "pc-01": "surface", "surface": "surface",
     "phone-01": "phone", "phone": "phone",
@@ -114,21 +63,11 @@ DEVICE_ALIASES = {
 
 
 def get_model_config(device: str, task: str) -> dict:
-    """
-    Returns the model configuration for a given device and task.
-
-    Accepts either a registry key ("surface") or a contract device_id
-    ("pc-01") — the latter is resolved via DEVICE_ALIASES.
-    """
-
+    """Model config for a device+task. Accepts a registry key ("surface") or a contract
+    device_id ("pc-01"); the latter resolves via DEVICE_ALIASES."""
     key = DEVICE_ALIASES.get(device, device)
-
     if key not in ACTIVE_REGISTRY:
         raise ValueError(f"Unsupported device: {device}")
-
     if task not in ACTIVE_REGISTRY[key]:
-        raise ValueError(
-            f"Task '{task}' not supported on device '{device}'"
-        )
-
+        raise ValueError(f"Task '{task}' not supported on device '{device}'")
     return ACTIVE_REGISTRY[key][task]

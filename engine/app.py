@@ -234,7 +234,8 @@ async def ws(websocket: WebSocket):
 
 def main():
     import uvicorn
-    port = int(os.environ.get("NEURAROUTE_PORT", "8000"))
+    # 8080 by default: the inference module's /infer servers own 8000 (laptop) and 8001 (cloud).
+    port = int(os.environ.get("NEURAROUTE_PORT", "8080"))
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
 
 

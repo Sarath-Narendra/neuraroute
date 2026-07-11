@@ -14,6 +14,7 @@ v2 routing: the registry entry's `type` decides the path —
 from .execution_logger import logger
 
 from . import cloud_adapter
+from . import infer_client
 from . import ops
 import time
 from datetime import datetime
@@ -40,7 +41,11 @@ def run_model(op: str, payload: dict, device: str = "surface", force_local: bool
     payload = payload.copy()
     payload["_device"] = device
 
-    if config.get("type") == "cloud" and not force_local:
+    kind = config.get("type")
+    if kind == "infer_http" and not force_local:
+        # bridge to the standalone /infer server (Eswar's inference module)
+        result = infer_client.call_infer(config["infer_url"], payload)
+    elif kind == "cloud" and not force_local:
         result = cloud_adapter.call_cloud(op, payload)
     else:
         fn = _DISPATCH.get(op)

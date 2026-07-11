@@ -6,7 +6,8 @@ import Constants from "expo-constants";
  * host (the laptop's hotspot IP) on the engine port — zero config. The user can still
  * override the host in-app if the engine runs elsewhere.
  */
-const ENGINE_PORT = 8000;
+// 8080: the inference module's /infer servers own 8000 (laptop) and 8001 (cloud).
+const ENGINE_PORT = 8080;
 
 function devServerHost(): string | null {
   // e.g. "192.168.43.1:8081" (Metro) -> "192.168.43.1"
