@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(gh *)",
+      "WebSearch",
+      "PowerShell(try { $r = Invoke-RestMethod -Uri \"https://api.github.com/search/repositories?q=neuraroute\" -Headers @{ 'User-Agent'='claude-code' } -ErrorAction Stop; $r.items | Select-Object full_name, html_url, description, pushed_at, language | Format-List } catch { Write-Output \"ERR: $\\($_.Exception.Message\\)\" })",
+      "PowerShell(winget install *)"
+    ]
+  }
+}
