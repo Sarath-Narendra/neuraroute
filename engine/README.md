@@ -2,13 +2,17 @@
 
 FastAPI + paho-mqtt + asyncio. The brain.
 
-- Heartbeat ingest → in-memory **Resource Graph**; devices go stale on a 3 s timeout.
-- **Scheduler:** feasibility filter (alive, RAM, accelerator, privacy hard-constraint) →
-  cost function `wL·L̂ + wE·Ê + wC·Ĉ − wP·P` → argmin. Weights in `policy.yaml`, hot-reloadable.
-- **Hardcoded planner** for the health-report DAG (do NOT build a general planner):
-  `t1 extract_text → (t2 summarize ∥ t3 flag_risk) → t4 patient_explainer`; `t3 → t5 population_stats`.
-- **Failover:** missed heartbeat (>3 s) or task timeout → quarantine device → reschedule via the same scoring path. Emit every decision + human-readable reason to `neuraroute/event`.
+- Heartbeat ingest → in-memory **Resource Graph**; tiers go stale on a 3 s timeout.
+- **Scheduler = the connectivity ladder:** pick the first tier that is alive and advertises
+  `triage`, in fixed order `cloud-01 → pc-01 → phone-01 → arduino-01`. No cost function.
+- **Planner:** one `triage` task per reading (no DAG). The orchestrator dispatches it, and on
+  a stale/error/timeout re-routes one rung down the ladder — "internet down" surfaces as the
+  cloud tier erroring, which is just another rung.
+- Fans every raw reading out on `neuraroute/reading` (the arduino watchdog's input) and
+  forwards watchdog `sos` alerts to the phone app. Emits every decision + reason to
+  `neuraroute/event`.
 
-**HTTP:** `POST /request` (PDF upload), `GET /ws` (WebSocket event stream to dashboard).
+**HTTP:** `POST /request` (`{patient_id, vitals}`), `GET /patients`, `GET /devices`,
+`GET /ws` (WebSocket event stream to the phone app).
 
-Test against `contracts/fake_device.py`.
+Run the whole stack with `./scripts/dev_up.sh` (broker + mock LLM + engine + 4 tiers).

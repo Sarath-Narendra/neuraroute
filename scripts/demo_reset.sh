@@ -55,4 +55,4 @@ if (( ELAPSED > 60 )); then
   echo "WARNING: reset took longer than 60 seconds" >&2
 fi
 
-echo "Note: engine/dashboard/model resets may require their own teammate-owned steps"
+echo "Note: real models (LM Studio / GPT / UNO Q SLM) reset on their own hosts"

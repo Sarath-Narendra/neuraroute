@@ -72,7 +72,7 @@ class ResourceGraph:
             return bool(d and d["alive"])
 
     def alive_snapshot_events(self):
-        """device_alive events for every currently-live device -- sent to a freshly connected dashboard."""
+        """device_alive events for every currently-live tier -- sent to a freshly connected app."""
         with self._lock:
             return [
                 {"type": EV_DEVICE_ALIVE, "ts": d["last_seen"], "device_id": did,

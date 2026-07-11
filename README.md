@@ -88,7 +88,7 @@ neuraroute/
   tools/       # mock_llm.py — OpenAI-compatible triage stub (no model downloads needed)
   scripts/     # dev_up.sh (one-command stack), kill_device.sh (failover trigger)
   data/        # patients.json — the 10-patient ward roster
-  dashboard/   # (shelved) the original Next.js dashboard, replaced by mobile/
+  docs/        # hardware bring-up runbooks (UNO Q, phone/Termux)
 ```
 
 ---

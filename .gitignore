@@ -18,6 +18,7 @@ node_modules/
 !.yarn/releases
 !.yarn/versions
 /.next/
+.next/
 /out/
 /build
 dist/

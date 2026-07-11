@@ -1,7 +1,9 @@
-# scripts/ — Orchestration scripts (owner: Gowtham)
+# scripts/ — Orchestration scripts
 
-One-command lifecycle for the whole system. `main` must always run `dev_up.sh` cleanly.
+One-command lifecycle for the whole system.
 
-- `dev_up.sh` — start broker + engine + N fake devices (the full system in simulated mode)
-- `demo_reset.sh` — reset to demo-start state in <60 s
-- `kill_device.sh` — kill a device node on cue (drives the on-stage failover)
+- `dev_up.sh` — start the full stack on one laptop: broker + mock LLM + engine + the 4 tier
+  agents (cloud, pc, phone, arduino). No models or hardware needed.
+- `demo_reset.sh` — kill the running stack, archive logs, and relaunch via `dev_up.sh`.
+- `kill_device.sh <device_id>` — hard-kill a tier on cue (drives the on-stage failover),
+  e.g. `./scripts/kill_device.sh cloud-01`.

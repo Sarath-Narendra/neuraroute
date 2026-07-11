@@ -73,8 +73,8 @@ def call_cloud(op: str, payload: dict, timeout_s: float = DEFAULT_TIMEOUT_S) -> 
     """
     Escalate one operation to the cloud.
 
-    op: the operation being escalated (in practice, always "population_stats" —
-        the only task marked sensitive: false in the DAG).
+    op: the operation being escalated (in practice, always "triage" — the cloud
+        tier is the top of the connectivity ladder, GPT with full patient history).
     payload: same shape run_model() would receive for that op.
 
     Returns a dict, ALWAYS in this shape:

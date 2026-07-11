@@ -1,6 +1,6 @@
 # Runbook — Arduino UNO Q bring-up (`arduino-01`)
 
-**Goal:** a green **`arduino-01`** tile heartbeating on the dashboard, able to run one dispatched op.
+**Goal:** a green **`arduino-01`** tile heartbeating on the phone app, able to run one dispatched op.
 **Owner of bring-up:** Sarath (embedded lane). **Executor if he's unavailable:** anyone — follow these steps literally.
 **Window:** Saturday 9:00–11:00 AM (before the hack clock), Gowtham shadowing. Budget 30–60 min.
 **Scope:** the Qualcomm (Dragonwing) **Debian Linux** side only. No firmware, no MCU code, no wiring — the STM32 half stays untouched.
@@ -86,14 +86,15 @@ Get Gowtham's agent onto the board (either clone the repo or scp two files):
 git clone https://github.com/Sarath-Narendra/neuraroute.git
 cd neuraroute
 ```
-The config is `runtime/configs/arduino.yaml` — it advertises what this node can do:
+The config is `runtime/configs/arduino.yaml` — it advertises the op and arms the watchdog:
 ```yaml
 device_id: arduino-01
 device_type: arduino
-accelerators: [cpu]
-supported_ops: [echo, flag_risk, doc_event_detect]   # a real live node is what matters
+supported_ops: [echo, triage]
 privacy_ok: true
-telemetry_mode: simulated
+watchdog: true                     # analyze every reading (tripwire + SLM), raise SOS
+records_path: data/patients.json   # the on-chip local copy of all patient records
+serial_port: null                  # /dev/ttyAMA0 to drive the STM32; null = log-only
 ```
 
 ## 7. Run the agent → green tile
@@ -103,32 +104,35 @@ NEURAROUTE_BROKER=BROKER_IP python3 runtime/agent.py runtime/configs/arduino.yam
 ```
 **Expected, within ~2 s:**
 - agent prints something like `arduino-01 up ... heartbeating`
-- the **dashboard shows a green `arduino-01` tile**
+- the **phone app shows a green `arduino-01` tile**
 - the **engine log** prints `device arduino-01 ALIVE`
 
 Independent check (watch the raw heartbeats from any machine on the hotspot):
 ```bash
 mosquitto_sub -h BROKER_IP -t neuraroute/heartbeat -v      # expect arduino-01 JSON every ~1.5 s
 ```
-- **Agent runs but no tile / no ALIVE** → the agent connected to a **different broker** than the engine. Confirm both use the same `BROKER_IP`. Confirm `mosquitto_sub` above shows arduino-01 — if it does, the problem is the dashboard/engine side, not the board.
+- **Agent runs but no tile / no ALIVE** → the agent connected to a **different broker** than the engine. Confirm both use the same `BROKER_IP`. Confirm `mosquitto_sub` above shows arduino-01 — if it does, the problem is the phone app/engine side, not the board.
 - **Tile appears then goes red after 3 s** → heartbeats stopped (agent crashed or Wi-Fi dropped). Check the agent's terminal for a traceback; re-run step 5.
 
-## 8. (Optional) a real op on the board
+## 8. The SLM + the watchdog
 
-Advertise one of these in `models:` so the scheduler can route real work here:
-1. **`doc_event_detect`** — rule-based keyword flag (plan B, guaranteed). *This is enough — the demo needs a live node, not a big model.*
-2. tiny **TFLite** op (stretch — only if everything else is green).
-3. **`echo`** — last-resort plumbing op; still proves a real, routable node.
+The UNO Q serves `triage` from a local SLM (llama.cpp `--server`, a ~0.5B Q4 model fits the
+4 GB RAM) — point the agent at it with `NEURAROUTE_LOCAL_BASE_URL=http://localhost:1234/v1`.
+With `watchdog: true`, the agent also analyzes **every** reading (hard tripwire + SLM) and
+raises an `sos` to the doctor's phone the instant it sees an extreme emergency — independent
+of the cloud, the laptop, and even the engine. See `arduino/README.md` for the serial display.
+- **No SLM ready yet?** Point `NEURAROUTE_LOCAL_BASE_URL` at the laptop's `tools/mock_llm.py`
+  so both the tier and the watchdog work while you sort the on-device model.
 
 ---
 
 ## Done when
 - [ ] Green `arduino-01` tile, real heartbeats, on the projector
-- [ ] It round-trips at least one dispatched op (dashboard shows a task landing on `arduino-01`)
+- [ ] It round-trips at least one dispatched op (phone app shows a task landing on `arduino-01`)
 
 ## Fallback (§8 of the build plan)
 | Plan A | Plan B | Plan C |
 |---|---|---|
-| Agent + tiny TFLite op | Agent + rule-based `doc_event_detect` (still a real live node) | **Simulated tile** (`python -m contracts.fake_device arduino-01`) — last resort, costs hardware points |
+| Agent + real SLM (llama.cpp) + serial display | Agent + mock LLM (`tools/mock_llm.py`) — still a real live tier + real watchdog SOS | Host the `arduino-01` tier on a laptop (`python runtime/agent.py runtime/configs/arduino.yaml`) — last resort, costs hardware points |
 
-The demo needs a live green node, not a heroic debugging story. If the clock says fall back, fall back.
+The demo needs a live tier and a working watchdog SOS, not a heroic debugging story. If the clock says fall back, fall back.

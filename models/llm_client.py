@@ -2,10 +2,9 @@
 models/llm_client.py
 
 OpenAI-compatible client for the LOCAL small LLM (LM Studio ARM64 server on
-the Surface, plan A per build plan §8; llama.cpp CPU is the fallback, but
-both expose the same OpenAI-compatible API so this file doesn't change
-between them). Used by ops t2-t4 (summarize, flag_risk, patient_explainer)
-and by population_stats' local/force_local path.
+the Surface / phone, llama.cpp CPU on the UNO Q — both expose the same
+OpenAI-compatible API so this file doesn't change between them). Used by the
+`triage` op for every on-device tier (pc / phone / arduino).
 
 Deliberately separate from cloud_adapter.py: same wire protocol (OpenAI-
 compatible chat completions), but a different base URL/model and a

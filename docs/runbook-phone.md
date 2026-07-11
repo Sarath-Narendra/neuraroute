@@ -1,11 +1,13 @@
 # Runbook — OnePlus 15 phone bring-up (`phone-01`)
 
-**Goal:** a green **`phone-01`** tile with **real battery telemetry** (the battery bar reflects the actual phone).
+**Goal:** a live **`phone-01`** tier — the phone runs `agent.py` and serves `triage` as the
+third rung of the connectivity ladder (used when cloud + PC are down).
 **Owner:** Gowtham. **Rehearse Friday on your OWN Android phone** so Saturday is a repeat, not a first attempt.
 **Budget:** 20–40 min.
 
 > **Escalation ladder:** this runbook → 30 min stuck → mentor → pair with Abhiram (web/network) → **plan B (§ bottom).**
-> **Why real battery matters:** the battery bar draining live is what sells "battery-aware routing." If Termux is blocked, plan B keeps a real tile with simulated telemetry.
+> **Why the phone tier matters:** it keeps triage running on the local hotspot after both the
+> cloud and the laptop are gone — the second-to-last line of defense before the UNO Q.
 
 ---
 
@@ -22,18 +24,20 @@ The Play Store builds are outdated and broken. Install **both**:
 ## 2. Packages
 ```bash
 pkg update && pkg upgrade -y
-pkg install -y python termux-api git
-pip install paho-mqtt pyyaml
+pkg install -y python git
+pip install paho-mqtt pyyaml requests
 ```
 **Expected:** `python --version` ≥ 3.11, `paho-mqtt` installs.
 - **`pkg` fails to fetch** → phone has no internet; join the hotspot / check data.
 
-## 3. Real battery telemetry works
+## 3. The local SLM (the phone tier's brain)
+The phone tier serves `triage` via an OpenAI-compatible endpoint. Simplest is llama.cpp's
+server with a small Q4 model (e.g. Qwen2.5-1.5B) in Termux, then point the agent at it:
 ```bash
-termux-battery-status
+export NEURAROUTE_LOCAL_BASE_URL=http://localhost:1234/v1
 ```
-**Expected:** JSON like `{"percentage": 78, "plugged": "UNPLUGGED", ...}` (a permission prompt may appear the first time — **Allow**).
-- **`termux-battery-status: command not found` or hangs forever** → the **Termux:API app** (step 1) isn't installed or lacks permission. Install it from F-Droid and re-run. This is the #1 phone gotcha.
+- **No model ready yet?** Point `NEURAROUTE_LOCAL_BASE_URL` at the laptop's mock LLM
+  (`tools/mock_llm.py`) so the tier still answers while you sort the on-device model.
 
 ## 4. Broker connectivity BEFORE the agent
 ```bash
@@ -51,47 +55,45 @@ cd neuraroute
 ```yaml
 device_id: phone-01
 device_type: phone
-accelerators: [cpu, npu]
-supported_ops: [echo, summarize, flag_risk, patient_explainer]
+supported_ops: [echo, triage]
 privacy_ok: true
-telemetry_mode: real          # battery via termux-battery-status
 ```
 
-## 6. Run the agent → green tile with a live battery bar
+## 6. Run the agent → live tier
 ```bash
-NEURAROUTE_BROKER=BROKER_IP python runtime/agent.py runtime/configs/phone.yaml
+NEURAROUTE_BROKER=BROKER_IP NEURAROUTE_LOCAL_BASE_URL=http://localhost:1234/v1 \
+  python runtime/agent.py runtime/configs/phone.yaml
 ```
 **Expected, within ~2 s:**
-- **dashboard shows a green `phone-01` tile** whose **battery bar matches the phone's real %**
+- **phone app shows `phone-01` alive** in the tier strip
 - engine log: `device phone-01 ALIVE`
 
 Independent check:
 ```bash
-mosquitto_sub -h BROKER_IP -t neuraroute/heartbeat -v      # phone-01 heartbeats with real battery
+mosquitto_sub -h BROKER_IP -t neuraroute/heartbeat -v      # phone-01 liveness every ~1.5 s
 ```
 
-## 7. Prove the telemetry is real (this is the on-stage failover fuel)
-- **Unplug** the phone → over ~30 s the battery % on the tile ticks **down**.
-- **Plug in** → the `charging` flag flips and the bar behavior changes.
-- **Safe on-stage kill:** the agent honours `simulate_battery_critical` from `neuraroute/admin`, so the demo drops the tile without physically unplugging:
-  ```bash
-  mosquitto_pub -h BROKER_IP -t neuraroute/admin -m '{"cmd":"simulate_battery_critical","device_id":"phone-01"}'
-  ```
-  **Expected:** battery reads critical → engine re-routes any in-flight task off `phone-01` with a reason on screen.
+## 7. Prove it triages, and prove the failover
+- With cloud + PC killed, submit a reading → it routes to `phone-01`; the phone app shows the
+  verdict tagged "Phone (local LLM)".
+- **On-stage kill:** `./scripts/kill_device.sh phone-01` (or Ctrl-C the agent) → within 3 s the
+  tier goes stale and the next reading slides down to the UNO Q — live, on screen.
 
 ---
 
 ## Done when
-- [ ] Green `phone-01` tile with **real** battery telemetry, on the projector
-- [ ] Battery % changes when you unplug/plug; `simulate_battery_critical` triggers a live re-route
+- [ ] `phone-01` alive in the phone app's tier strip
+- [ ] A reading routes to it (verdict tagged "Phone"); killing it fails the next reading over to `arduino-01`
 
 ## Plan B (§8) — if the loaner OnePlus blocks Termux / sideloading
-The phone becomes the **browser dashboard UI node only** (open the dashboard in its Chrome), and a **laptop-hosted agent masquerades as `phone-01`** with simulated telemetry:
+The phone still runs the **doctor's app** (Expo Go), and a **laptop hosts the `phone-01`
+tier** instead — just run the real agent for that config on any laptop on the hotspot:
 ```bash
-python -m contracts.fake_device phone-01          # on any laptop on the hotspot
+python runtime/agent.py runtime/configs/phone.yaml   # phone-01 tier, hosted on a laptop
 ```
-Still a real, live tile on screen — the audience can't tell, and the battery-drain script (`simulate_battery_critical`) works identically.
+The ladder can't tell the difference — `phone-01` is a live tier either way, and killing it
+(`./scripts/kill_device.sh phone-01`) drives the failover identically.
 
 | Plan A | Plan B | Plan C |
 |---|---|---|
-| Termux agent + real battery telemetry | Browser UI + masqueraded agent w/ simulated telemetry | Fake device labeled `phone-01` |
+| Termux agent on the real phone | Laptop hosts the `phone-01` tier (real agent) | Skip the phone tier; ladder routes cloud→pc→arduino |
