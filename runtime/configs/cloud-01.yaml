@@ -1,6 +1,0 @@
-# Qualcomm AI Cloud 100 — burst/aggregate node. privacy_ok=false => never gets sensitive tasks.
-device_id: cloud-01
-accelerators: [cpu, gpu]
-models: [summarize, population_stats, patient_explainer]
-privacy_ok: false             # off-device: only public (cloud-eligible) tasks route here
-telemetry_mode: simulated

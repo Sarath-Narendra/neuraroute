@@ -1,0 +1,12 @@
+device_id: pc-01
+device_type: pc
+accelerators:
+  - cpu
+supported_ops:
+  - echo
+  - summarize
+  - flag_risk
+  - patient_explainer
+telemetry_mode: real
+models: []
+# TODO: fill in once models/ team confirms model IDs per device

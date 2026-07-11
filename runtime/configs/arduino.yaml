@@ -1,0 +1,10 @@
+device_id: arduino-01
+device_type: arduino
+accelerators:
+  - cpu
+supported_ops:
+  - echo
+  - doc_event_detect
+telemetry_mode: simulated
+models: []
+# TODO: fill in once models/ team confirms model IDs per device
