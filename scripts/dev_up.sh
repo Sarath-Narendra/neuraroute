@@ -21,9 +21,18 @@ PIDS_DIR="$REPO_ROOT/run/pids"
 LOGS_DIR="$REPO_ROOT/run/logs"
 mkdir -p "$PIDS_DIR" "$LOGS_DIR"
 
+# Load .env if present, so config (registry, infer URLs, broker) lives in one file.
+if [[ -f "$REPO_ROOT/.env" ]]; then
+  set -a; source "$REPO_ROOT/.env"; set +a
+  echo "  loaded $REPO_ROOT/.env"
+fi
+
 # Prefer the repo venv's python so deps are guaranteed present.
+# (Windows venv lives in .venv/Scripts, macOS/Linux in .venv/bin — check both.)
 if [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then
   PY="$REPO_ROOT/.venv/bin/python"
+elif [[ -x "$REPO_ROOT/.venv/Scripts/python.exe" ]]; then
+  PY="$REPO_ROOT/.venv/Scripts/python.exe"
 elif command -v python3 >/dev/null 2>&1; then
   PY="python3"
 else
