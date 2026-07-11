@@ -1,0 +1,6 @@
+# OnePlus 15 (Termux) — battery-constrained NPU node + browser UI. See docs/runbook-phone.md.
+device_id: phone-01
+accelerators: [cpu, npu]
+models: [summarize, flag_risk, patient_explainer]
+privacy_ok: true              # on-device: sensitive tasks may run here
+telemetry_mode: real          # real battery via termux-battery-status

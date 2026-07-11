@@ -1,0 +1,6 @@
+# Surface Laptop 7 (Snapdragon X Elite) — the heavy local node + orchestrator host.
+device_id: pc-01
+accelerators: [cpu, npu]
+models: [extract_text, summarize, flag_risk, patient_explainer]
+privacy_ok: true              # on-device: sensitive tasks may run here
+telemetry_mode: simulated     # mains-powered; no battery
