@@ -1,6 +1,0 @@
-# Arduino Uno Q (Qualcomm Dragonwing / Debian) — always-on edge node. See docs/runbook-arduino.md.
-device_id: arduino-01
-accelerators: [cpu]
-models: [flag_risk]           # plan-B op: doc_event_detect / echo (a real live node is what matters)
-privacy_ok: true
-telemetry_mode: real

@@ -1,0 +1,11 @@
+device_id: phone-01
+device_type: phone
+accelerators:
+  - cpu
+  - npu
+supported_ops:
+  - echo
+  - extract_text
+telemetry_mode: real
+models: []
+# TODO: fill in once models/ team confirms model IDs per device
