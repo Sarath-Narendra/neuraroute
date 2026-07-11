@@ -62,6 +62,17 @@ class ResourceGraph:
                 for did, d in self.devices.items()
             }
 
+    def snapshot_alive(self):
+        """device_id -> {hb, last_seen} for every currently-alive device (for the scheduler)."""
+        with self._lock:
+            return {did: {"hb": d["hb"], "last_seen": d["last_seen"]}
+                    for did, d in self.devices.items() if d["alive"]}
+
+    def is_alive(self, device_id: str) -> bool:
+        with self._lock:
+            d = self.devices.get(device_id)
+            return bool(d and d["alive"])
+
     def alive_snapshot_events(self):
         """device_alive events for every currently-live device -- sent to a freshly connected dashboard."""
         with self._lock:

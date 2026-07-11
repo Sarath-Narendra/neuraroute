@@ -17,16 +17,21 @@ import asyncio
 import json
 import logging
 import os
+import time
+import uuid
 from contextlib import asynccontextmanager
 
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from contracts.topics import (
-    BROKER_PORT, CONTRACTS_VERSION, TOPIC_EVENT, TOPIC_HEARTBEAT,
+    BROKER_PORT, CONTRACTS_VERSION, EV_POLICY, TOPIC_EVENT, TOPIC_HEARTBEAT,
     TOPIC_RESULT_WILDCARD, broker_host,
 )
+from engine.orchestrator import Orchestrator
+from engine.policy import Policy
 from engine.resource_graph import ResourceGraph
+from engine.scheduler import Scheduler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-5s %(name)s | %(message)s",
                     datefmt="%H:%M:%S")
@@ -36,6 +41,9 @@ graph = ResourceGraph()
 _ws_clients: set[WebSocket] = set()
 _main_loop: asyncio.AbstractEventLoop | None = None
 _mqtt: mqtt.Client | None = None
+policy: Policy | None = None
+scheduler: Scheduler | None = None
+orchestrator: Orchestrator | None = None
 
 
 # --- event fan-out: MQTT (neuraroute/event) + every connected dashboard --------------
@@ -78,6 +86,8 @@ def _on_message(client, userdata, msg):
             res = json.loads(msg.payload)
             log.info("result %s from %s: %s (%.0f ms)", res.get("task_id"), res.get("device_id"),
                      res.get("status"), res.get("latency_ms") or 0)
+            if orchestrator is not None and _main_loop is not None:
+                _main_loop.call_soon_threadsafe(orchestrator.on_result, res)
     except Exception:
         log.exception("bad message on %s", msg.topic)
 
@@ -88,13 +98,15 @@ async def _monitor():
         for event in graph.tick():
             log.warning("device %s STALE", event["device_id"])
             emit_event(event)
+            if orchestrator is not None:
+                orchestrator.on_device_stale(event["device_id"])   # re-route its in-flight tasks
         await asyncio.sleep(1.0)
 
 
 # --- app lifespan --------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _main_loop, _mqtt
+    global _main_loop, _mqtt, policy, scheduler, orchestrator
     _main_loop = asyncio.get_running_loop()
     _mqtt = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="neuraroute-engine")
     _mqtt.on_connect = _on_connect
@@ -103,8 +115,14 @@ async def lifespan(app: FastAPI):
     _mqtt.reconnect_delay_set(min_delay=1, max_delay=5)
     _mqtt.connect_async(broker_host(), BROKER_PORT, keepalive=30)
     _mqtt.loop_start()
+    policy = Policy()
+    scheduler = Scheduler(graph, policy)
+    orchestrator = Orchestrator(graph, scheduler,
+                                publish=lambda topic, payload: _mqtt.publish(topic, payload),
+                                emit=emit_event, loop=_main_loop)
     monitor = asyncio.create_task(_monitor())
-    log.info("NeuraRoute engine up (contracts v%s) -- waiting for heartbeats", CONTRACTS_VERSION)
+    log.info("NeuraRoute engine up (contracts v%s, policy=%s) -- waiting for heartbeats",
+             CONTRACTS_VERSION, policy.active_profile)
     try:
         yield
     finally:
@@ -128,9 +146,27 @@ def devices():
 
 @app.post("/request", status_code=202)
 async def request(body: dict | None = None):
-    # Friday: turn this into the hardcoded DAG plan + dispatch. Today it just acknowledges.
-    log.info("POST /request received: %s", body)
-    return {"accepted": True, "note": "planner + dispatch land Friday (P1)"}
+    """Kick off an orchestrated run of the health-report DAG across live devices."""
+    request_id = (body or {}).get("request_id") or f"req-{uuid.uuid4().hex[:6]}"
+    orchestrator.start_run(request_id)
+    return {"accepted": True, "request_id": request_id}
+
+
+@app.post("/policy")
+async def set_policy(body: dict):
+    """Flip the scheduler profile live (speed_first <-> battery_saver) — the demo toggle."""
+    profile = (body or {}).get("profile", "")
+    if not policy.set_profile(profile):
+        return {"ok": False, "error": f"unknown profile '{profile}'"}
+    emit_event({"type": EV_POLICY, "ts": time.time(), "reason": f"policy -> {profile}",
+                "profile": profile})
+    log.info("policy flipped -> %s %s", profile, policy.weights())
+    return {"ok": True, "active_profile": profile, "weights": policy.weights()}
+
+
+@app.get("/status")
+def status():
+    return orchestrator.status() if orchestrator else {}
 
 
 @app.websocket("/ws")
