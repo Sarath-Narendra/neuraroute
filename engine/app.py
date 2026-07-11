@@ -79,7 +79,15 @@ def _on_connect(client, userdata, flags, reason_code, properties=None):
 def _on_message(client, userdata, msg):
     try:
         if msg.topic == TOPIC_HEARTBEAT:
-            event = graph.update(json.loads(msg.payload))
+            hb = json.loads(msg.payload)
+            device_id = hb.get("device_id", "<unknown>")
+            battery = hb.get("battery")
+            cpu_load = hb.get("cpu_load")
+            npu_load = hb.get("npu_load")
+            ts = hb.get("ts")
+            log.info("heartbeat from %s at %s | battery=%s | cpu_load=%s | npu_load=%s",
+                     device_id, ts, battery, cpu_load, npu_load)
+            event = graph.update(hb)
             if event:
                 log.info("device %s ALIVE", event["device_id"])
                 emit_event(event)
