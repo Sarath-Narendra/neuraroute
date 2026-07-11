@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "neuraroute/task.schema.json",
+  "title": "Task",
+  "description": "Engine -> device dispatch, published to neuraroute/task/<device_id>.",
+  "type": "object",
+  "required": ["task_id", "request_id", "op", "payload", "assigned_device"],
+  "additionalProperties": false,
+  "properties": {
+    "task_id": { "type": "string", "description": "unique, e.g. req42-t2" },
+    "request_id": { "type": "string", "description": "the parent request this task belongs to" },
+    "op": { "type": "string", "description": "one of OPS (or echo)" },
+    "payload": {
+      "type": "object",
+      "description": "op-specific input, e.g. {\"text\": \"...\"} or {\"from\": \"t1\"} to consume an upstream result"
+    },
+    "depends_on": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "task_ids that must complete first (engine only dispatches when ready)"
+    },
+    "deadline_ms": { "type": "number", "minimum": 0, "description": "per-task timeout; miss -> failover" },
+    "privacy": { "type": "string", "enum": ["sensitive", "public"] },
+    "priority": { "type": "string", "enum": ["normal", "high"] },
+    "assigned_device": { "type": "string", "description": "device_id the scheduler chose" }
+  }
+}

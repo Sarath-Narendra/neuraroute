@@ -1,0 +1,7 @@
+# NeuraRoute Python dependencies (engine, runtime, contracts fakes)
+paho-mqtt>=2.1        # MQTT client (engine + device agent + fakes)
+fastapi>=0.110        # engine HTTP + WebSocket
+uvicorn[standard]>=0.29
+websockets>=12.0      # fake_engine WS server for dashboard dev
+jsonschema>=4.21      # validate messages against contracts/*.schema.json
+pyyaml>=6.0           # runtime device configs + engine policy.yaml

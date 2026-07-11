@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "neuraroute/result.schema.json",
+  "title": "Result",
+  "description": "Device -> engine, published to neuraroute/result/<task_id>.",
+  "type": "object",
+  "required": ["task_id", "request_id", "device_id", "op", "status"],
+  "additionalProperties": false,
+  "properties": {
+    "task_id": { "type": "string" },
+    "request_id": { "type": "string" },
+    "device_id": { "type": "string", "description": "device that executed the task" },
+    "op": { "type": "string" },
+    "status": { "type": "string", "enum": ["ok", "error", "timeout"] },
+    "result": { "description": "op output (shape depends on op); absent on error/timeout" },
+    "started_ts": { "type": "number" },
+    "finished_ts": { "type": "number" },
+    "latency_ms": { "type": "number", "minimum": 0 },
+    "error": { "type": ["string", "null"] }
+  }
+}

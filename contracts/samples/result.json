@@ -1,0 +1,12 @@
+{
+  "task_id": "req-demo-t2",
+  "request_id": "req-demo",
+  "device_id": "phone-01",
+  "op": "summarize",
+  "status": "ok",
+  "result": { "summary": "Lipid panel mildly elevated; blood pressure normal; follow-up in 3 months." },
+  "started_ts": 1752230402.1,
+  "finished_ts": 1752230404.6,
+  "latency_ms": 2500,
+  "error": null
+}

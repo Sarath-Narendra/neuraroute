@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "neuraroute/heartbeat.schema.json",
+  "title": "Heartbeat",
+  "description": "Device -> engine telemetry, published to neuraroute/heartbeat every ~1.5 s.",
+  "type": "object",
+  "required": ["device_id", "ts", "accelerators", "models"],
+  "additionalProperties": false,
+  "properties": {
+    "device_id": { "type": "string", "description": "stable node id, e.g. pc-01" },
+    "ts": { "type": "number", "description": "unix epoch seconds when emitted" },
+    "accelerators": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["cpu", "gpu", "npu"] },
+      "description": "compute units this node can use"
+    },
+    "models": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "ops this device can run (subset of OPS)"
+    },
+    "battery": {
+      "type": ["object", "null"],
+      "description": "null for mains-powered nodes (PC, cloud)",
+      "required": ["percent", "charging"],
+      "additionalProperties": false,
+      "properties": {
+        "percent": { "type": "number", "minimum": 0, "maximum": 100 },
+        "charging": { "type": "boolean" }
+      }
+    },
+    "cpu_load": { "type": "number", "minimum": 0, "maximum": 1 },
+    "npu_load": { "type": "number", "minimum": 0, "maximum": 1 },
+    "temperature_c": { "type": "number" },
+    "ram_free_mb": { "type": "number", "minimum": 0 },
+    "net": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reachable": { "type": "boolean" },
+        "latency_ms": { "type": "number", "minimum": 0 }
+      }
+    },
+    "privacy_ok": {
+      "type": "boolean",
+      "description": "true if sensitive data may be processed here (on-device); false for cloud"
+    },
+    "telemetry_mode": { "type": "string", "enum": ["real", "simulated"] }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "task_id": "req-demo-t2",
+  "request_id": "req-demo",
+  "op": "summarize",
+  "payload": { "from": "t1" },
+  "depends_on": ["t1"],
+  "deadline_ms": 8000,
+  "privacy": "sensitive",
+  "priority": "normal",
+  "assigned_device": "phone-01"
+}

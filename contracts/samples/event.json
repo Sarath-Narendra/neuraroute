@@ -1,0 +1,11 @@
+{
+  "type": "placement",
+  "ts": 1752230402.0,
+  "request_id": "req-demo",
+  "task_id": "req-demo-t2",
+  "device_id": "phone-01",
+  "op": "summarize",
+  "reason": "phone-01: on-device (privacy=sensitive), NPU free, lowest energy cost",
+  "score": { "chosen": "phone-01", "latency": 0.4, "energy": 0.2, "cost": 0.0, "privacy": 1.0, "total": 0.31 },
+  "priority": "normal"
+}
