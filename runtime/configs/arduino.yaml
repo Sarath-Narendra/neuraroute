@@ -4,7 +4,9 @@ accelerators:
   - cpu
 supported_ops:
   - echo
+  - flag_risk
   - doc_event_detect
+privacy_ok: true
 telemetry_mode: simulated
 models: []
 # TODO: fill in once models/ team confirms model IDs per device

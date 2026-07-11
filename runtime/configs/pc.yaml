@@ -2,11 +2,14 @@ device_id: pc-01
 device_type: pc
 accelerators:
   - cpu
+  - npu
 supported_ops:
   - echo
+  - extract_text
   - summarize
   - flag_risk
   - patient_explainer
+privacy_ok: true          # on-device: sensitive tasks may run here
 telemetry_mode: real
 models: []
 # TODO: fill in once models/ team confirms model IDs per device

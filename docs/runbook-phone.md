@@ -47,17 +47,19 @@ python -c "import paho.mqtt.client as m; c=m.Client(m.CallbackAPIVersion.VERSION
 git clone https://github.com/Sarath-Narendra/neuraroute.git
 cd neuraroute
 ```
-`runtime/configs/phone-01.yaml`:
+`runtime/configs/phone.yaml`:
 ```yaml
 device_id: phone-01
+device_type: phone
 accelerators: [cpu, npu]
-models: [summarize, flag_risk, patient_explainer]
+supported_ops: [echo, summarize, flag_risk, patient_explainer]
+privacy_ok: true
 telemetry_mode: real          # battery via termux-battery-status
 ```
 
 ## 6. Run the agent → green tile with a live battery bar
 ```bash
-NEURAROUTE_BROKER=BROKER_IP python runtime/agent.py runtime/configs/phone-01.yaml
+NEURAROUTE_BROKER=BROKER_IP python runtime/agent.py runtime/configs/phone.yaml
 ```
 **Expected, within ~2 s:**
 - **dashboard shows a green `phone-01` tile** whose **battery bar matches the phone's real %**

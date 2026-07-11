@@ -86,18 +86,20 @@ Get Gowtham's agent onto the board (either clone the repo or scp two files):
 git clone https://github.com/Sarath-Narendra/neuraroute.git
 cd neuraroute
 ```
-The config is `runtime/configs/arduino-01.yaml` — it advertises what this node can do:
+The config is `runtime/configs/arduino.yaml` — it advertises what this node can do:
 ```yaml
 device_id: arduino-01
+device_type: arduino
 accelerators: [cpu]
-models: [flag_risk]        # or the plan-B op below; 'echo' is the guaranteed fallback
-telemetry_mode: real
+supported_ops: [echo, flag_risk, doc_event_detect]   # a real live node is what matters
+privacy_ok: true
+telemetry_mode: simulated
 ```
 
 ## 7. Run the agent → green tile
 
 ```bash
-NEURAROUTE_BROKER=BROKER_IP python3 runtime/agent.py runtime/configs/arduino-01.yaml
+NEURAROUTE_BROKER=BROKER_IP python3 runtime/agent.py runtime/configs/arduino.yaml
 ```
 **Expected, within ~2 s:**
 - agent prints something like `arduino-01 up ... heartbeating`

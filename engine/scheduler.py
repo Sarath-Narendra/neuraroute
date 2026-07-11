@@ -17,18 +17,18 @@ PARALLEL_PENALTY = 0.5   # added to a device already running another task in thi
 
 def _latency_raw(hb: dict) -> float:
     net = hb.get("net") or {}
-    latency = float(net.get("latency_ms", 20))
-    busy = max(float(hb.get("cpu_load", 0.0)), float(hb.get("npu_load", 0.0)))
+    latency = float(net.get("latency_ms") or 20)
+    busy = max(float(hb.get("cpu_load") or 0.0), float(hb.get("npu_load") or 0.0))
     return latency + 120.0 * busy          # a loaded device is effectively slower
 
 
 def _energy_raw(hb: dict) -> float:
     bat = hb.get("battery")
-    if not bat:
+    if not isinstance(bat, dict):          # None / float / garbage -> treat as mains, never crash
         return 0.10                        # mains-powered (PC / cloud): cheap
     if bat.get("charging"):
         return 0.20
-    pct = float(bat.get("percent", 100))
+    pct = float(bat.get("percent") or 100)
     return 0.30 + 0.70 * (1.0 - pct / 100.0)   # discharging: rises as the battery drains
 
 

@@ -1,0 +1,14 @@
+device_id: cloud-01
+device_type: cloud
+accelerators:
+  - cpu
+  - gpu
+supported_ops:
+  - echo
+  - summarize
+  - population_stats
+  - patient_explainer
+privacy_ok: false         # off-device: only public (cloud-eligible) tasks route here
+telemetry_mode: simulated
+models: []
+# TODO(models team): fill in model IDs per device once confirmed

@@ -5,7 +5,10 @@ accelerators:
   - npu
 supported_ops:
   - echo
-  - extract_text
-telemetry_mode: real
+  - summarize
+  - flag_risk
+  - patient_explainer
+privacy_ok: true          # on-device: sensitive tasks may run here
+telemetry_mode: real      # real battery via termux-battery-status
 models: []
 # TODO: fill in once models/ team confirms model IDs per device

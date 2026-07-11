@@ -92,11 +92,12 @@ class DeviceAgent:
         return data
 
     def _parse_broker_env(self) -> tuple[str, int]:
-        broker_value = os.environ.get("NEURAROUTE_BROKER", "localhost:1883")
-        if ":" not in broker_value:
-            raise ValueError("NEURAROUTE_BROKER must be in format host:port")
-        host, port_text = broker_value.rsplit(":", 1)
-        return host, int(port_text)
+        # host-only (default port 1883) to match engine/dev_up/runbooks; host:port also accepted
+        broker_value = os.environ.get("NEURAROUTE_BROKER", "localhost")
+        if ":" in broker_value:
+            host, port_text = broker_value.rsplit(":", 1)
+            return host, int(port_text)
+        return broker_value, 1883
 
     def start(self) -> None:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -138,22 +139,31 @@ class DeviceAgent:
             if self.client.is_connected():
                 telemetry = get_telemetry(self.device_type, self.telemetry_mode, self.device_id)
 
-                # Standardize battery on the wire as a 0.0-1.0 fraction (matches
-                # contracts/heartbeat.schema.json's expected shape), even though
-                # telemetry.py internally works in 0-100 (psutil/Termux native units).
+                # heartbeat.schema.json: battery is {percent 0-100, charging} or null;
+                # cpu/npu_load are 0.0-1.0. telemetry.py reports battery + load on a 0-100 scale.
                 raw_battery = telemetry.get("battery")
-                battery_fraction = None if raw_battery is None else round(raw_battery / 100.0, 4)
+                battery = None if raw_battery is None else {
+                    "percent": round(float(raw_battery), 1),
+                    "charging": bool(telemetry.get("charging", False)),
+                }
 
                 payload = {
                     "device_id": self.device_id,
-                    "timestamp": time.time(),
-                    "battery": battery_fraction,
-                    "cpu_load": telemetry.get("cpu_load"),
-                    "npu_load": telemetry.get("npu_load"),
-                    "status": "alive",
+                    "ts": time.time(),
                     "accelerators": self.accelerators,
+                    "models": self.supported_ops,          # what this device can run — scheduler needs this
+                    "battery": battery,
+                    "privacy_ok": bool(self.config.get("privacy_ok", True)),
+                    "telemetry_mode": self.telemetry_mode,
                 }
-                # TODO: replace with contracts/heartbeat.schema.json once frozen
+                # loads: normalize 0-100 -> 0-1, and OMIT when None (null would break the scheduler)
+                cpu = telemetry.get("cpu_load")
+                if cpu is not None:
+                    payload["cpu_load"] = round(min(1.0, float(cpu) / 100.0), 3)
+                npu = telemetry.get("npu_load")
+                if npu is not None:
+                    payload["npu_load"] = round(min(1.0, float(npu) / 100.0), 3)
+
                 self.client.publish("neuraroute/heartbeat", json.dumps(payload), qos=1, retain=False)
                 LOGGER.info("Published heartbeat for %s", self.device_id)
             self.shutdown_event.wait(1.5)
@@ -224,7 +234,7 @@ class DeviceAgent:
             return
 
         task_id = payload.get("task_id")
-        target_device_id = payload.get("device_id")
+        target_device_id = payload.get("assigned_device")   # contract field is assigned_device
         if target_device_id not in (None, self.device_id):
             return
 
@@ -243,7 +253,7 @@ class DeviceAgent:
             if not isinstance(result, dict):
                 result = {"value": result}
 
-            status = "success"
+            status = "ok"          # result.schema.json status enum: ok | error | timeout
             error = None
         except Exception as exc:  # pragma: no cover - defensive path
             status = "error"
@@ -251,16 +261,19 @@ class DeviceAgent:
             error = str(exc)
             LOGGER.exception("Task %s failed", task_id)
 
-        duration_ms = (time.time() - start_time) * 1000.0
+        finished = time.time()
         response_payload = {
             "task_id": task_id,
+            "request_id": payload.get("request_id"),   # REQUIRED — engine matches results by this
             "device_id": self.device_id,
+            "op": op,
             "status": status,
             "result": result,
+            "started_ts": start_time,
+            "finished_ts": finished,
+            "latency_ms": round((finished - start_time) * 1000.0, 1),
             "error": error,
-            "duration_ms": duration_ms,
         }
-        # TODO: replace with contracts/result.schema.json once frozen
         topic = f"neuraroute/result/{task_id}"
         client.publish(topic, json.dumps(response_payload), qos=1, retain=False)
         LOGGER.info("Published result for task %s on %s", task_id, topic)
