@@ -100,7 +100,13 @@ def _on_connect(client, userdata, flags, reason_code, properties=None):
 def _on_message(client, userdata, msg):
     try:
         if msg.topic == TOPIC_HEARTBEAT:
-            event = graph.update(json.loads(msg.payload))
+            hb = json.loads(msg.payload)
+            # per-heartbeat trace (Gowtham) — v2 heartbeats are liveness-only, so log the
+            # fields that exist now; at debug level so it doesn't flood at ~1.5s x N devices.
+            log.debug("heartbeat from %s at %s | models=%s | privacy_ok=%s",
+                      hb.get("device_id", "<unknown>"), hb.get("ts"),
+                      hb.get("models"), hb.get("privacy_ok"))
+            event = graph.update(hb)
             if event:
                 log.info("device %s ALIVE", event["device_id"])
                 emit_event(event)
