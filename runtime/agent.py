@@ -1,11 +1,17 @@
-"""Standalone NeuraRoute device agent.
+"""Standalone NeuraRoute device agent (v2 — vitals triage tiers).
 
 Run it like this:
-    python runtime/agent.py configs/pc.yaml
+    python runtime/agent.py runtime/configs/pc.yaml
 
-The agent connects to an MQTT broker, publishes heartbeats, listens for tasks on
-neuraroute/task/<device_id>, listens for admin commands on neuraroute/admin,
-executes tasks, and publishes results.
+The agent connects to the MQTT broker, publishes liveness heartbeats, listens for
+triage tasks on neuraroute/task/<device_id>, executes them via models.run_model, and
+publishes results.
+
+The arduino agent additionally runs the ALWAYS-ON WATCHDOG (config `watchdog: true`):
+it subscribes to every raw reading on neuraroute/reading and, independent of whatever
+tier the engine picked, runs the hard tripwire + the local SLM on it. An extreme
+emergency publishes an sos alert to neuraroute/sos (-> doctor's phone) and prints the
+verdict to the serial bridge (-> Arduino IDE serial monitor / LED).
 """
 
 from __future__ import annotations
@@ -34,31 +40,35 @@ try:
 except ImportError as exc:  # pragma: no cover - runtime dependency check
     raise SystemExit("PyYAML is required: pip install pyyaml") from exc
 
-try:
-    from runtime.telemetry import get_telemetry, simulate_battery_critical, clear_override
-except ImportError:
-    # TODO: import real telemetry.py once teammate/you finish it
-    def get_telemetry(device_type: str, telemetry_mode: str, device_id: str | None = None) -> dict[str, Any]:
-        return {"battery": 100.0, "cpu_load": 0.0, "npu_load": None}
-
-    def simulate_battery_critical(device_id: str) -> None:
-        pass
-
-    def clear_override(device_id: str) -> None:
-        pass
+from contracts.topics import (
+    EV_SOS, HEARTBEAT_INTERVAL_S, SEV_EMERGENCY, TOPIC_ADMIN, TOPIC_HEARTBEAT,
+    TOPIC_READING, TOPIC_SOS, broker_host, topic_result, topic_task,
+)
 
 try:
-    from models.run_model import run_model
+    # run_model is exported from the models package __init__, not a submodule.
+    from models import run_model
+    from models.tripwire import tripwire
 except ImportError:
-    def run_model(op: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def run_model(op: str, payload: dict[str, Any], device: str = "unknown") -> dict[str, Any]:
         return {
             "status": "mock",
             "op": op,
             "note": "run_model not available yet — dummy result",
         }
 
+    def tripwire(vitals: dict) -> tuple[str, list[str]]:
+        return "normal", []
+
 
 LOGGER = logging.getLogger("neuraroute.agent")
+
+SOS_COOLDOWN_S = 45.0   # per-patient: don't re-alert the doctor every 20 s for the same crisis
+
+
+def adapt_task_payload(op: str, task_payload: dict[str, Any]) -> dict[str, Any]:
+    """v2: the engine already sends run_model's flat shape {patient_id, vitals, profile}."""
+    return dict(task_payload)
 
 
 class DeviceAgent:
@@ -67,9 +77,15 @@ class DeviceAgent:
         self.config = self._load_config(config_path)
         self.device_id = str(self.config.get("device_id", "unknown-device"))
         self.device_type = str(self.config.get("device_type", "pc"))
-        self.accelerators = list(self.config.get("accelerators", []))
         self.supported_ops = list(self.config.get("supported_ops", []))
-        self.telemetry_mode = str(self.config.get("telemetry_mode", "simulated"))
+        self.privacy_ok = bool(self.config.get("privacy_ok", True))
+
+        # --- watchdog (arduino): always-on safety path -------------------------------
+        self.watchdog = bool(self.config.get("watchdog", False))
+        self.records = self._load_records(self.config.get("records_path"))
+        self.serial_port = self.config.get("serial_port")
+        self._serial = None
+        self._last_sos: dict[str, float] = {}
 
         self.broker_host, self.broker_port = self._parse_broker_env()
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=self.device_id)
@@ -91,6 +107,17 @@ class DeviceAgent:
             raise ValueError("Config file must contain a YAML mapping")
         return data
 
+    def _load_records(self, records_path: str | None) -> dict[str, dict]:
+        """The device's LOCAL copy of the patient records (the arduino's 'on-chip' story)."""
+        path = Path(records_path) if records_path else Path(ROOT_DIR) / "data" / "patients.json"
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                return {p["patient_id"]: p for p in json.load(handle)}
+        except Exception:
+            if self.config.get("watchdog"):
+                LOGGER.warning("watchdog has no local records (%s) — triaging without history", path)
+            return {}
+
     def _parse_broker_env(self) -> tuple[str, int]:
         # host-only (default port 1883) to match engine/dev_up/runbooks; host:port also accepted
         broker_value = os.environ.get("NEURAROUTE_BROKER", "localhost")
@@ -101,7 +128,8 @@ class DeviceAgent:
 
     def start(self) -> None:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-        LOGGER.info("Starting device agent for %s", self.device_id)
+        LOGGER.info("Starting device agent for %s (watchdog=%s)", self.device_id, self.watchdog)
+        self._open_serial()
         self.client.connect_async(self.broker_host, self.broker_port, keepalive=60)
         self.client.loop_start()
 
@@ -123,74 +151,36 @@ class DeviceAgent:
         if self.shutdown_event.is_set():
             return
         self.shutdown_event.set()
-
-        try:
-            self._publish_offline_heartbeat()
-        except Exception as exc:  # pragma: no cover - best effort shutdown
-            LOGGER.warning("Failed to publish offline heartbeat: %s", exc)
-
         if self.client.is_connected():
             self.client.disconnect()
         self.client.loop_stop()
         LOGGER.info("Agent stopped for %s", self.device_id)
 
+    # --- heartbeat: liveness only (the ladder routes on reachability, not load) ------
     def _heartbeat_loop(self) -> None:
         while not self.shutdown_event.is_set():
             if self.client.is_connected():
-                telemetry = get_telemetry(self.device_type, self.telemetry_mode, self.device_id)
-
-                # heartbeat.schema.json: battery is {percent 0-100, charging} or null;
-                # cpu/npu_load are 0.0-1.0. telemetry.py reports battery + load on a 0-100 scale.
-                raw_battery = telemetry.get("battery")
-                battery = None if raw_battery is None else {
-                    "percent": round(float(raw_battery), 1),
-                    "charging": bool(telemetry.get("charging", False)),
-                }
-
                 payload = {
                     "device_id": self.device_id,
                     "ts": time.time(),
-                    "accelerators": self.accelerators,
-                    "models": self.supported_ops,          # what this device can run — scheduler needs this
-                    "battery": battery,
-                    "privacy_ok": bool(self.config.get("privacy_ok", True)),
-                    "telemetry_mode": self.telemetry_mode,
+                    "models": self.supported_ops,   # ops this tier can run — feasibility needs this
+                    "privacy_ok": self.privacy_ok,
                 }
-                # loads: normalize 0-100 -> 0-1, and OMIT when None (null would break the scheduler)
-                cpu = telemetry.get("cpu_load")
-                if cpu is not None:
-                    payload["cpu_load"] = round(min(1.0, float(cpu) / 100.0), 3)
-                npu = telemetry.get("npu_load")
-                if npu is not None:
-                    payload["npu_load"] = round(min(1.0, float(npu) / 100.0), 3)
+                self.client.publish(TOPIC_HEARTBEAT, json.dumps(payload), qos=1, retain=False)
+            self.shutdown_event.wait(HEARTBEAT_INTERVAL_S)
 
-                self.client.publish("neuraroute/heartbeat", json.dumps(payload), qos=1, retain=False)
-                LOGGER.info("Published heartbeat for %s", self.device_id)
-            self.shutdown_event.wait(1.5)
-
-    def _publish_offline_heartbeat(self) -> None:
-        payload = {
-            "device_id": self.device_id,
-            "timestamp": time.time(),
-            "battery": None,
-            "cpu_load": None,
-            "npu_load": None,
-            "status": "offline",
-            "accelerators": self.accelerators,
-        }
-        self.client.publish("neuraroute/heartbeat", json.dumps(payload), qos=1, retain=False)
-        LOGGER.info("Published offline heartbeat for %s", self.device_id)
-
+    # --- mqtt ------------------------------------------------------------------------
     def _on_connect(self, client: mqtt.Client, userdata: Any, flags: Any, reason_code: Any, properties: Any = None) -> None:
         if reason_code == 0:
             self.connected = True
-            task_topic = f"neuraroute/task/{self.device_id}"
+            task_topic = topic_task(self.device_id)
             client.subscribe(task_topic, qos=1)
-            client.subscribe("neuraroute/admin", qos=1)
-            LOGGER.info(
-                "Connected to broker %s:%s; subscribed to %s and neuraroute/admin",
-                self.broker_host, self.broker_port, task_topic,
-            )
+            client.subscribe(TOPIC_ADMIN, qos=1)
+            if self.watchdog:
+                client.subscribe(TOPIC_READING, qos=1)
+                LOGGER.info("watchdog armed: analyzing every reading on %s", TOPIC_READING)
+            LOGGER.info("Connected to broker %s:%s; subscribed to %s",
+                        self.broker_host, self.broker_port, task_topic)
         else:
             LOGGER.warning("MQTT connect failed with code %s", reason_code)
 
@@ -200,10 +190,12 @@ class DeviceAgent:
             LOGGER.warning("Disconnected from broker; reconnecting with backoff")
 
     def _on_message(self, client: mqtt.Client, userdata: Any, message: mqtt.MQTTMessage) -> None:
-        if message.topic == "neuraroute/admin":
+        if message.topic == TOPIC_ADMIN:
             self._handle_admin_message(message)
-            return
-        self._handle_task_message(client, message)
+        elif message.topic == TOPIC_READING:
+            threading.Thread(target=self._handle_reading, args=(message,), daemon=True).start()
+        else:
+            self._handle_task_message(client, message)
 
     def _handle_admin_message(self, message: mqtt.MQTTMessage) -> None:
         try:
@@ -211,21 +203,13 @@ class DeviceAgent:
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             LOGGER.warning("Received invalid JSON admin payload: %s", exc)
             return
-
         target_device_id = payload.get("device_id")
         if target_device_id not in (None, self.device_id):
-            return  # this admin message was meant for a different device
+            return
+        LOGGER.info("Admin command %r acknowledged (v2 agents have no telemetry to override)",
+                    payload.get("command"))
 
-        command = payload.get("command")
-        if command == "simulate_battery_critical":
-            simulate_battery_critical(self.device_id)
-            LOGGER.info("Admin: forcing next battery reading to critical for %s", self.device_id)
-        elif command == "clear_override":
-            clear_override(self.device_id)
-            LOGGER.info("Admin: cleared battery override for %s", self.device_id)
-        else:
-            LOGGER.warning("Unknown admin command: %s", command)
-
+    # --- the quality path: engine-dispatched triage tasks -----------------------------
     def _handle_task_message(self, client: mqtt.Client, message: mqtt.MQTTMessage) -> None:
         try:
             payload = json.loads(message.payload.decode("utf-8"))
@@ -247,14 +231,24 @@ class DeviceAgent:
 
             if op == "echo":
                 result = {"echo": task_payload}
+                status = "ok"      # result.schema.json status enum: ok | error | timeout
+                error = None
             else:
-                result = run_model(op, task_payload)
+                adapted = adapt_task_payload(op, task_payload)
+                result = run_model(op, adapted, device=self.device_id)
+                # run_model returns an envelope; surface its status on the wire so a
+                # failed op (GPT unreachable, LLM down) fails over DOWN THE LADDER
+                # instead of masquerading as ok.
+                if isinstance(result, dict) and result.get("status") in ("error", "timeout"):
+                    status = result["status"]
+                    error = result.get("error")
+                else:
+                    status = "ok"
+                    error = None
 
             if not isinstance(result, dict):
                 result = {"value": result}
 
-            status = "ok"          # result.schema.json status enum: ok | error | timeout
-            error = None
         except Exception as exc:  # pragma: no cover - defensive path
             status = "error"
             result = None
@@ -262,21 +256,88 @@ class DeviceAgent:
             LOGGER.exception("Task %s failed", task_id)
 
         finished = time.time()
+        inner = (result or {}).get("result") if isinstance(result, dict) else None
         response_payload = {
             "task_id": task_id,
             "request_id": payload.get("request_id"),   # REQUIRED — engine matches results by this
             "device_id": self.device_id,
             "op": op,
             "status": status,
-            "result": result,
+            "result": inner if isinstance(inner, dict) else result,
             "started_ts": start_time,
             "finished_ts": finished,
             "latency_ms": round((finished - start_time) * 1000.0, 1),
             "error": error,
         }
-        topic = f"neuraroute/result/{task_id}"
-        client.publish(topic, json.dumps(response_payload), qos=1, retain=False)
-        LOGGER.info("Published result for task %s on %s", task_id, topic)
+        client.publish(topic_result(task_id), json.dumps(response_payload), qos=1, retain=False)
+        LOGGER.info("Published result for task %s (%s)", task_id, status)
+        # the tier that ran the triage also narrates it on the serial bridge
+        if status == "ok" and isinstance(inner, dict) and inner.get("severity"):
+            self._serial_write(f"[{inner.get('patient_id', '?')}] {inner['severity'].upper()}"
+                               f" (triage on {self.device_id}): {inner.get('transcript', '')}")
+
+    # --- the safety path: the always-on watchdog --------------------------------------
+    def _handle_reading(self, message: mqtt.MQTTMessage) -> None:
+        try:
+            reading = json.loads(message.payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return
+        patient_id = str(reading.get("patient_id", "unknown"))
+        vitals = reading.get("vitals") or {}
+
+        # 1) hard tripwire first — instant, deterministic, cannot hallucinate
+        severity, reasons = tripwire(vitals)
+        if severity == SEV_EMERGENCY:
+            self._raise_sos(patient_id, vitals, "tripwire: " + "; ".join(reasons))
+
+        # 2) SLM pass on the SAME reading — catches what fixed bounds can't, and
+        #    writes the detailed note to the serial monitor
+        profile = self.records.get(patient_id, {})
+        out = run_model("triage", {"patient_id": patient_id, "vitals": vitals,
+                                   "profile": profile}, device=self.device_id)
+        if isinstance(out, dict) and out.get("status") == "ok":
+            verdict = out.get("result") or {}
+            slm_sev = verdict.get("severity")
+            if severity != SEV_EMERGENCY and slm_sev == SEV_EMERGENCY:
+                self._raise_sos(patient_id, vitals,
+                                "SLM: " + (verdict.get("transcript") or "")[:200])
+            self._serial_write(f"[{patient_id}] {str(slm_sev or '?').upper()} (watchdog):"
+                               f" {verdict.get('transcript', '')}")
+        elif severity == SEV_EMERGENCY:
+            self._serial_write(f"[{patient_id}] EMERGENCY (tripwire): {'; '.join(reasons)}")
+
+    def _raise_sos(self, patient_id: str, vitals: dict, reason: str) -> None:
+        now = time.time()
+        if now - self._last_sos.get(patient_id, 0.0) < SOS_COOLDOWN_S:
+            LOGGER.info("sos for %s suppressed (cooldown)", patient_id)
+            return
+        self._last_sos[patient_id] = now
+        alert = {"type": EV_SOS, "ts": now, "patient_id": patient_id,
+                 "severity": SEV_EMERGENCY, "reason": reason, "vitals": vitals,
+                 "source": f"watchdog-{self.device_id}", "device_id": self.device_id}
+        self.client.publish(TOPIC_SOS, json.dumps(alert), qos=1, retain=False)
+        LOGGER.warning("SOS RAISED for %s: %s", patient_id, reason)
+        self._serial_write(f"!!! EMERGENCY {patient_id}: {reason}")
+
+    # --- serial bridge -> STM32 -> Arduino IDE serial monitor + LED -------------------
+    def _open_serial(self) -> None:
+        if not self.serial_port:
+            return
+        try:
+            import serial  # pyserial, optional
+            self._serial = serial.Serial(self.serial_port, 115200, timeout=1)
+            LOGGER.info("serial bridge open on %s", self.serial_port)
+        except Exception as exc:
+            LOGGER.warning("serial bridge unavailable (%s) — mirroring to log only", exc)
+
+    def _serial_write(self, line: str) -> None:
+        line = " ".join(str(line).split())    # single line, no embedded newlines
+        if self._serial is not None:
+            try:
+                self._serial.write((line + "\n").encode("utf-8", "replace"))
+            except Exception as exc:
+                LOGGER.warning("serial write failed: %s", exc)
+        LOGGER.info("[SERIAL] %s", line)
 
     def _handle_signal(self, signum: int, _frame: Any) -> None:
         LOGGER.info("Received signal %s; shutting down", signum)

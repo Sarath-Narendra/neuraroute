@@ -1,45 +1,77 @@
-# NeuraRoute — Adaptive AI Inference Orchestrator
+# NeuraRoute — Resilient Edge AI for a Night Ward
 
-**The "Kubernetes of AI": a software orchestration layer that decides at runtime *which
-device* runs each AI task — and re-routes live when conditions change.** Four Snapdragon
-devices behave as one cooperative AI computer, with routing decisions made on-device based
-on battery, latency, thermal, privacy, and cost signals — plus graceful degradation and
-live failover.
+**One night nurse, ten patients, and an AI that never goes dark.** NeuraRoute routes each
+patient's vitals to the best AI brain available *right now* — GPT in the cloud when there's
+internet, the laptop or the phone on the local hotspot when there isn't, and a tiny model on
+an Arduino UNO Q as the last line of defense — and it **degrades gracefully** as each tier
+drops. An always-on watchdog on the Arduino reads every vital sign in parallel and fires a
+**real notification to the doctor's phone** the instant it sees a life-threatening emergency —
+even with the internet, the laptop, the phone, and the server all down.
 
-Built for the **Snapdragon Multiverse Hackathon** (Bengaluru, Jul 11–12, 2026).
-
----
-
-## Team
-
-| Role | Name | Component | Owns folder |
-|---|---|---|---|
-| Lead / Engine / Integration / Presenter | **Sarath Narendra Kuppala** | Decision engine, contracts, Arduino Uno Q bring-up | `engine/`, `contracts/` |
-| Dashboard | **Abhiram** | React dashboard, WebSocket client, CI, README acid test | `dashboard/` |
-| Runtimes / Devices | **Gowtham** | Universal device agent, phone/Uno Q ports, broker, scripts | `runtime/`, `scripts/` |
-| Models / Cloud / Metrics | **Eswar** | The 5 model ops, cloud adapter, benchmark, docs | `models/`, `metrics/`, `docs/` |
-
-_Contact emails are listed in the submission form and will be added here before submission._
+Built for the **Snapdragon Multiverse Hackathon** (Bengaluru, Jul 11–12, 2026). The whole
+system runs on a single laptop with **no cloud account and no AI hardware** — the models are
+stubbed by a local mock server for development.
 
 ---
 
-## How it works
+## The idea
 
-Every component talks over **MQTT** with **frozen JSON contracts** (owned by the engine
-lead — see `contracts/`). Each person builds against *fakes* of everyone else's component,
-so nobody blocks anybody. Integration = pointing every process at the same broker.
+A rural health center has one nurse watching ten patients overnight. Every ~20 seconds each
+patient's vitals (heart rate, SpO₂, temperature, respiration) are read and sent for triage.
+NeuraRoute decides where that triage runs, and guarantees the nurse is warned about anything
+critical no matter what infrastructure has failed.
 
-**MQTT topics (v1):**
+**The connectivity ladder** — the engine picks the first tier that is alive, in this order:
+
+| Tier | Brain | When it runs |
+|---|---|---|
+| `cloud-01` | **GPT** (has full patient history) | internet is up |
+| `pc-01` | Laptop local LLM | no internet, laptop on the hotspot |
+| `phone-01` | Phone local LLM | laptop is down too |
+| `arduino-01` | **UNO Q SLM** (records on-chip) | everything else is gone |
+
+Each tier cross-references the reading against the patient's record and returns
+`{severity: normal | mild | emergency, transcript}`. Pull the network (or `kill` a tier) and
+the next reading slides down the ladder — live.
+
+**The failsafe** — the UNO Q runs an *always-on watchdog* on **every** reading, independent of
+the ladder, the internet, and even the engine: a hard numeric tripwire (`HR>135`, `SpO₂<85`, …)
+**or** the local SLM flags an extreme emergency → the doctor's phone gets a real OS notification,
+and the verdict prints to the Arduino IDE serial monitor while the on-board LED blinks.
+
+---
+
+## Architecture
+
+```
+  vitals reading (phone app / curl)
+        │  POST /request
+        ▼
+   ┌──────────┐   neuraroute/task/<tier>    ┌─────────────────────────────┐
+   │  ENGINE  │ ───────────────────────────▶│ tier agents (runtime/agent) │
+   │ (ladder) │◀─────────────────────────── │ cloud · pc · phone · arduino │
+   └────┬─────┘   neuraroute/result/<id>    └──────────────┬──────────────┘
+        │  neuraroute/event (/ws)                          │ models.run_model("triage")
+        │  neuraroute/reading ─────────────▶ arduino WATCHDOG (tripwire + SLM)
+        ▼                                                   │ neuraroute/sos
+   Doctor's PHONE APP (Expo)  ◀───────────────────────────┘
+   patient board · tier status · 🚨 local notification
+```
+
+Everything talks over **MQTT** with **frozen JSON contracts** (`contracts/`). The engine
+serves an HTTP + WebSocket API; the phone app connects to `/ws` over the local hotspot.
+Broker address is one env var: **`NEURAROUTE_BROKER`**.
+
+**MQTT topics (v2):**
 
 | Topic | Direction | Purpose |
 |---|---|---|
-| `neuraroute/heartbeat` | device → engine | telemetry every 1–2 s |
-| `neuraroute/task/<device_id>` | engine → device | task dispatch |
-| `neuraroute/result/<task_id>` | device → engine | task result |
-| `neuraroute/event` | engine → dashboard | decisions, reasons, failover, metrics |
-| `neuraroute/admin` | control | demo controls (`simulate_battery_critical`, `reset`) |
-
-The broker address is read from a single env var: **`NEURAROUTE_BROKER`**.
+| `neuraroute/heartbeat` | tier → engine | liveness ping (~1.5 s) |
+| `neuraroute/task/<device_id>` | engine → tier | triage dispatch |
+| `neuraroute/result/<task_id>` | tier → engine | triage verdict |
+| `neuraroute/reading` | engine → all | raw reading fan-out (watchdog input) |
+| `neuraroute/sos` | watchdog → engine | extreme-emergency alert |
+| `neuraroute/event` | engine → phone app | placements, failover, verdicts, sos |
 
 ---
 
@@ -47,14 +79,16 @@ The broker address is read from a single env var: **`NEURAROUTE_BROKER`**.
 
 ```
 neuraroute/
-  contracts/   # FROZEN schemas + sample payloads + fakes (owner: Sarath)
-  engine/      # FastAPI + paho-mqtt + asyncio decision engine (Sarath)
-  dashboard/   # Vite + React + Tailwind, WebSocket client (Abhiram)
-  runtime/     # agent.py + configs/<device>.yaml (Gowtham)
-  models/      # run_model(op, payload) + cloud_adapter.py (Eswar)
-  metrics/     # run_bench.py -> metrics.json (Eswar)
-  scripts/     # dev_up.sh, demo_reset.sh, kill_device.sh
-  docs/        # pitch, runbooks
+  contracts/   # FROZEN schemas + samples + fakes (topics.py is the source of truth)
+  engine/      # FastAPI + paho-mqtt + asyncio: the ladder scheduler + orchestrator
+  models/      # run_model("triage", …) → {severity, transcript}; registry, LLM + GPT adapters, tripwire
+  runtime/     # agent.py (a tier) + configs/<tier>.yaml; the arduino agent runs the watchdog
+  mobile/      # the doctor's phone app (Expo / React Native) — the UI
+  arduino/     # UNO Q STM32 sketch: serial-monitor display + severity LED
+  tools/       # mock_llm.py — OpenAI-compatible triage stub (no model downloads needed)
+  scripts/     # dev_up.sh (one-command stack), kill_device.sh (failover trigger)
+  data/        # patients.json — the 10-patient ward roster
+  dashboard/   # (shelved) the original Next.js dashboard, replaced by mobile/
 ```
 
 ---
@@ -62,9 +96,8 @@ neuraroute/
 ## Prerequisites
 
 - **Python 3.11+**
-- **Node 20+**
-- **Mosquitto** MQTT broker — `brew install mosquitto` (macOS) / installer (Windows) / `apt install mosquitto` (Linux)
-- **Git**
+- **Mosquitto** — `brew install mosquitto` (macOS) / `apt install mosquitto` (Linux) / installer (Windows)
+- **Node 20+** and the **Expo Go** app on your phone (for the mobile UI)
 
 ## Setup from scratch
 
@@ -72,38 +105,47 @@ neuraroute/
 git clone git@github.com:Sarath-Narendra/neuraroute.git
 cd neuraroute
 
-# Python side (engine, runtime, models, metrics)
 python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt    # added as components land
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
 
-# Dashboard
-cd dashboard && npm install && cd ..
-
-# Broker address (defaults to localhost)
-export NEURAROUTE_BROKER=localhost  # Windows: set NEURAROUTE_BROKER=localhost
+cd mobile && npm install && cd ..    # phone app deps
 ```
 
-## Run (simulated-device mode — everything on one laptop)
+## Run — the whole system on one laptop, no AI hardware
 
 ```bash
-./scripts/dev_up.sh     # starts broker + engine + fake devices
-cd dashboard && npm run dev
+./scripts/dev_up.sh
 ```
 
-A judge can run the **entire system on a single laptop** in simulated-device mode — no
-physical Snapdragon hardware required.
+This starts the broker, a **mock LLM** (so no model downloads or GPU are needed), the engine,
+and all four tier agents. Then submit a reading and watch it triage:
+
+```bash
+# a critical reading -> emergency verdict + watchdog SOS
+curl -XPOST localhost:8000/request -H 'Content-Type: application/json' \
+     -d '{"patient_id":"P-03","vitals":{"hr":176,"spo2":79,"temp_c":37,"resp_rate":32}}'
+
+# drive the failover on stage: kill the top tier, submit again -> it routes one tier down
+./scripts/kill_device.sh cloud-01
+```
+
+**The phone app:** `cd mobile && npx expo start`, then open it in **Expo Go** on a phone joined
+to the laptop's network/hotspot. It auto-detects the engine at the laptop's IP (override in-app
+if needed), shows the 10-patient board and tier status live, and raises a real OS notification on
+every emergency.
+
+## Use real models at the venue
+
+- **GPT (cloud tier):** `export NEURAROUTE_CLOUD_MOCK=false NEURAROUTE_CLOUD_BASE_URL=https://api.openai.com/v1 NEURAROUTE_CLOUD_API_KEY=sk-…`
+- **Local LLM (pc/phone tiers):** run LM Studio, then `export NEURAROUTE_LOCAL_BASE_URL=http://<lm-studio-ip>:1234/v1` (dev_up skips the mock LLM when this is set).
+- **UNO Q SLM + serial display:** see `arduino/README.md`.
+
+No contract changes are needed to swap mock → real; flip the env vars and restart.
 
 ---
-
-## Contributing (team)
-
-- **Commit only inside your own folder.** Folder-per-owner = zero merge conflicts by construction.
-- `main` must always run `scripts/dev_up.sh` cleanly. If your push breaks it, fix it before anything else.
-- **`contracts/` is frozen and owned by Sarath.** Any schema change needs sign-off + a version bump + a note in the group chat. No silent edits.
-- Commit often (~every 30 min) with a clear message ("working X against fake Y").
 
 ## License
 
 [MIT](LICENSE) — all dependencies are open-source (Mosquitto EPL, FastAPI/paho MIT,
-React MIT, llama.cpp MIT, open-weights models with permissive licenses).
+React Native / Expo MIT, llama.cpp MIT, open-weights models with permissive licenses).

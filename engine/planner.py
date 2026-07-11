@@ -1,27 +1,24 @@
-"""Hardcoded planner: turn a request into the frozen 5-task health-report DAG.
+"""Planner v2: every request (= one vitals reading) is exactly ONE triage task.
 
-This is deliberately NOT a general planner (build-plan §3). It expands DEMO_DAG from the
-frozen contracts into concrete, per-request task dicts the orchestrator can dispatch:
-
-    t1 extract_text -> (t2 summarize || t3 flag_risk) -> t4 patient_explainer
-    t3 flag_risk -> t5 population_stats  (public -> cloud-eligible)
+The 5-task PDF DAG is gone. A reading arrives -> one `triage` task is dispatched to
+the best alive tier; the tier cross-references the patient's record and returns
+{patient_id, severity, transcript}.
 """
-from contracts.topics import DEMO_DAG, PRIORITY_NORMAL
+from contracts.topics import OP_TRIAGE, PRIORITY_NORMAL, PRIVACY_PUBLIC
 
-DEFAULT_DEADLINE_MS = 8000
+# Real local SLMs can take 15-30 s on a JSON-shaped prompt; the 3 s stale-detection is
+# what catches dead tiers fast — this deadline only catches a hung-but-heartbeating one.
+DEFAULT_DEADLINE_MS = 45000
 
 
 def plan_request(request_id: str, deadline_ms: int = DEFAULT_DEADLINE_MS) -> list:
-    tasks = []
-    for local_id, spec in DEMO_DAG.items():
-        tasks.append({
-            "task_id": f"{request_id}-{local_id}",
-            "local_id": local_id,
-            "request_id": request_id,
-            "op": spec["op"],
-            "depends_on": [f"{request_id}-{d}" for d in spec["depends_on"]],
-            "privacy": spec["privacy"],
-            "deadline_ms": deadline_ms,
-            "priority": PRIORITY_NORMAL,
-        })
-    return tasks
+    return [{
+        "task_id": f"{request_id}-t1",
+        "local_id": "t1",
+        "request_id": request_id,
+        "op": OP_TRIAGE,
+        "depends_on": [],
+        "privacy": PRIVACY_PUBLIC,      # cloud-first by design: GPT is the preferred tier
+        "deadline_ms": deadline_ms,
+        "priority": PRIORITY_NORMAL,
+    }]

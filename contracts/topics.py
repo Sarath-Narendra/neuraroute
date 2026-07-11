@@ -1,19 +1,30 @@
-"""Frozen v1 constants shared by every NeuraRoute component.
+"""Frozen v2 constants shared by every NeuraRoute component.
 
 Owned by Sarath. This is the single source of truth for MQTT topic strings, op names,
-enums, and the hardcoded demo DAG. Import from here — never hardcode a topic string in
-your own file, or integration will drift. Any change needs a version bump + group sign-off.
+enums, severity levels, and the connectivity ladder. Import from here — never hardcode
+a topic string in your own file, or integration will drift. Any change needs a version
+bump + group sign-off.
+
+v2.0.0 (2026-07-11) — THE PIVOT: continuous vitals triage for a 10-patient night ward.
+  * ONE op: triage (the 5-task PDF DAG is gone; DEMO_DAG deleted)
+  * scheduling = fixed connectivity ladder (cloud -> pc -> phone -> arduino), first
+    alive tier wins; the cost function + policy profiles are deleted
+  * new topics: neuraroute/reading  (engine fans out every raw reading -> watchdog)
+                neuraroute/sos      (arduino watchdog -> engine: extreme emergency)
+  * heartbeats are liveness-only: no cpu/npu/battery telemetry
 """
 import os
 
-CONTRACTS_VERSION = "1.1.0"   # 1.1.0: removed heartbeat temperature_c (unused — Gowtham, 2026-07)
+CONTRACTS_VERSION = "2.0.0"
 
 # --- MQTT topics (frozen) ---
-TOPIC_HEARTBEAT = "neuraroute/heartbeat"          # device -> engine, every ~1.5 s
-TOPIC_EVENT = "neuraroute/event"                  # engine -> dashboard (decisions/failover/metrics)
-TOPIC_ADMIN = "neuraroute/admin"                  # demo controls (simulate_battery_critical, reset)
+TOPIC_HEARTBEAT = "neuraroute/heartbeat"          # device -> engine, every ~1.5 s (liveness)
+TOPIC_EVENT = "neuraroute/event"                  # engine -> UIs (placements/failover/sos/metrics)
+TOPIC_ADMIN = "neuraroute/admin"                  # demo controls
 TOPIC_TASK_WILDCARD = "neuraroute/task/+"         # engine -> device (subscribe side)
 TOPIC_RESULT_WILDCARD = "neuraroute/result/+"     # device -> engine (subscribe side)
+TOPIC_READING = "neuraroute/reading"              # engine -> all: every raw {patient_id, vitals}
+TOPIC_SOS = "neuraroute/sos"                      # watchdog -> engine: extreme-emergency alert
 
 
 def topic_task(device_id: str) -> str:
@@ -26,18 +37,29 @@ def topic_result(task_id: str) -> str:
     return f"neuraroute/result/{task_id}"
 
 
-# --- ops: the 5-task health-report DAG (models dev implements run_model for each) ---
-OP_EXTRACT_TEXT = "extract_text"
-OP_SUMMARIZE = "summarize"
-OP_FLAG_RISK = "flag_risk"
-OP_PATIENT_EXPLAINER = "patient_explainer"
-OP_POPULATION_STATS = "population_stats"
+# --- ops: v2 has exactly one — triage a fresh vitals reading against the record ---
+OP_TRIAGE = "triage"
 OP_ECHO = "echo"  # trivial op for round-trip plumbing tests
-OPS = [OP_EXTRACT_TEXT, OP_SUMMARIZE, OP_FLAG_RISK, OP_PATIENT_EXPLAINER, OP_POPULATION_STATS]
+OPS = [OP_TRIAGE]
+
+# --- severity levels (triage output + sos events) ---
+SEV_NORMAL = "normal"        # within expected range for this patient
+SEV_MILD = "mild"            # needs medication / attention tonight
+SEV_EMERGENCY = "emergency"  # life-threatening now -> doctor notified immediately
+SEVERITIES = [SEV_NORMAL, SEV_MILD, SEV_EMERGENCY]
+
+# --- the connectivity ladder: scheduler picks the FIRST alive tier, in this order ---
+PRIORITY_LADDER = ["cloud-01", "pc-01", "phone-01", "arduino-01"]
+TIER_LABELS = {
+    "cloud-01": "GPT (cloud)",
+    "pc-01": "PC (local LLM)",
+    "phone-01": "Phone (local LLM)",
+    "arduino-01": "Arduino (SLM)",
+}
 
 # --- enums ---
-PRIVACY_SENSITIVE = "sensitive"   # must run on a device with privacy_ok=true (never cloud)
-PRIVACY_PUBLIC = "public"         # cloud-eligible
+PRIVACY_SENSITIVE = "sensitive"   # kept for schema compat; v2 triage is cloud-first by design
+PRIVACY_PUBLIC = "public"
 
 PRIORITY_NORMAL = "normal"
 PRIORITY_HIGH = "high"            # SOS / preemptive
@@ -56,7 +78,7 @@ EV_TASK_DONE = "task_done"
 EV_FAILOVER = "failover"
 EV_METRICS = "metrics"
 EV_REQUEST_DONE = "request_done"
-EV_POLICY = "policy"
+EV_POLICY = "policy"   # vestigial in v2 (no cost profiles); kept so old payloads don't break parsers
 EV_SOS = "sos"
 
 # --- timing (frozen) ---
@@ -69,14 +91,3 @@ BROKER_PORT = 1883
 
 def broker_host() -> str:
     return os.environ.get("NEURAROUTE_BROKER", "localhost")
-
-
-# --- the hardcoded demo DAG (do NOT build a general planner; the engine plans exactly this) ---
-# t1 extract_text -> (t2 summarize || t3 flag_risk) -> t4 patient_explainer ; t3 -> t5 population_stats
-DEMO_DAG = {
-    "t1": {"op": OP_EXTRACT_TEXT,       "depends_on": [],            "privacy": PRIVACY_SENSITIVE},
-    "t2": {"op": OP_SUMMARIZE,          "depends_on": ["t1"],        "privacy": PRIVACY_SENSITIVE},
-    "t3": {"op": OP_FLAG_RISK,          "depends_on": ["t1"],        "privacy": PRIVACY_SENSITIVE},
-    "t4": {"op": OP_PATIENT_EXPLAINER,  "depends_on": ["t2", "t3"],  "privacy": PRIVACY_SENSITIVE},
-    "t5": {"op": OP_POPULATION_STATS,   "depends_on": ["t3"],        "privacy": PRIVACY_PUBLIC},
-}

@@ -1,12 +1,17 @@
 {
-  "task_id": "req-demo-t2",
-  "request_id": "req-demo",
-  "device_id": "phone-01",
-  "op": "summarize",
+  "task_id": "req-42a1b2-t1",
+  "request_id": "req-42a1b2",
+  "device_id": "cloud-01",
+  "op": "triage",
   "status": "ok",
-  "result": { "summary": "Lipid panel mildly elevated; blood pressure normal; follow-up in 3 months." },
-  "started_ts": 1752230402.1,
-  "finished_ts": 1752230404.6,
-  "latency_ms": 2500,
+  "result": {
+    "op": "triage",
+    "patient_id": "P-04",
+    "severity": "mild",
+    "transcript": "Sunita's temperature has risen to 38.9°C from a post-op baseline of 37.2°C, with heart rate up to 118 from 82. Two days after an appendectomy this pattern is most consistent with an early surgical-site infection rather than normal post-op fever. SpO2 and blood pressure remain acceptable, so this is not yet an emergency. Give the charted paracetamol now, confirm the antibiotic dose was taken, and inspect the wound for redness or discharge. Re-check vitals in 30 minutes; escalate to emergency if temperature exceeds 39.5°C, systolic BP falls below 95, or she becomes drowsy."
+  },
+  "started_ts": 1783785601.2,
+  "finished_ts": 1783785603.4,
+  "latency_ms": 2200.0,
   "error": null
 }

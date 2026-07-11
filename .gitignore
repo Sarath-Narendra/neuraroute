@@ -53,6 +53,15 @@ yarn-error.log*
 .pnpm-debug.log*
 /coverage
 
+# ===== Runtime (dev_up pids/logs) & Expo =====
+run/
+.expo/
+mobile/.expo/
+expo-export/
+
+# ===== Execution logs =====
+execution_log.jsonl
+
 # ===== Internal planning docs & reference PDFs (kept local, not published) =====
 # Qualcomm-provided materials are copyrighted; internal strategy stays off the public repo.
 *.pdf

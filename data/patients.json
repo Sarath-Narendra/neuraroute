@@ -1,0 +1,112 @@
+[
+  {
+    "patient_id": "P-01",
+    "name": "Ramesh Gowda",
+    "age": 67,
+    "sex": "M",
+    "conditions": ["Type 2 diabetes", "Hypertension"],
+    "medications": ["Metformin 500mg", "Amlodipine 5mg"],
+    "allergies": [],
+    "baseline": {"hr": 78, "spo2": 96, "temp_c": 36.8, "resp_rate": 16, "bp_sys": 138, "bp_dia": 86},
+    "history_summary": "Admitted for uncontrolled blood sugar. BP runs high at baseline. Two prior admissions this year for hyperglycemia. Stable on current medication for 4 days."
+  },
+  {
+    "patient_id": "P-02",
+    "name": "Lakshmi Devi",
+    "age": 72,
+    "sex": "F",
+    "conditions": ["COPD", "Former smoker"],
+    "medications": ["Salbutamol inhaler", "Tiotropium"],
+    "allergies": ["Penicillin"],
+    "baseline": {"hr": 84, "spo2": 91, "temp_c": 36.9, "resp_rate": 20, "bp_sys": 128, "bp_dia": 78},
+    "history_summary": "COPD exacerbation last month, on maintenance inhalers. Baseline SpO2 is LOW-NORMAL for her (90-92%); do not panic at 91%, but a drop below 88% is significant deterioration."
+  },
+  {
+    "patient_id": "P-03",
+    "name": "Abdul Karim",
+    "age": 58,
+    "sex": "M",
+    "conditions": ["Post-MI (heart attack 2024)", "Coronary artery disease"],
+    "medications": ["Aspirin 75mg", "Atorvastatin 40mg", "Metoprolol 25mg"],
+    "allergies": [],
+    "baseline": {"hr": 64, "spo2": 97, "temp_c": 36.7, "resp_rate": 14, "bp_sys": 122, "bp_dia": 76},
+    "history_summary": "Heart attack in 2024 with stent placement. On beta-blocker so baseline HR is low (60-68). Chest pain, HR above 110, or new irregular rhythm is a red flag for this patient."
+  },
+  {
+    "patient_id": "P-04",
+    "name": "Sunita Sharma",
+    "age": 34,
+    "sex": "F",
+    "conditions": ["Post-operative (appendectomy, day 2)"],
+    "medications": ["Paracetamol 650mg", "Cefixime 200mg"],
+    "allergies": [],
+    "baseline": {"hr": 82, "spo2": 98, "temp_c": 37.2, "resp_rate": 16, "bp_sys": 116, "bp_dia": 74},
+    "history_summary": "Day 2 after appendix surgery, recovering well. Mild fever up to 37.5 is expected post-op; above 38.5 suggests infection. Watch for rising HR with falling BP (internal bleeding)."
+  },
+  {
+    "patient_id": "P-05",
+    "name": "Venkatesh Rao",
+    "age": 81,
+    "sex": "M",
+    "conditions": ["Chronic kidney disease (stage 3)", "Anemia"],
+    "medications": ["Erythropoietin", "Furosemide 40mg"],
+    "allergies": ["Sulfa drugs"],
+    "baseline": {"hr": 88, "spo2": 95, "temp_c": 36.5, "temp_note": "runs cool", "resp_rate": 18, "bp_sys": 146, "bp_dia": 88},
+    "history_summary": "CKD stage 3 with anemia; tires easily, baseline HR slightly high. On diuretics — dehydration risk. Confusion or HR above 120 needs urgent review given his age."
+  },
+  {
+    "patient_id": "P-06",
+    "name": "Meena Kumari",
+    "age": 26,
+    "sex": "F",
+    "conditions": ["Pregnancy (32 weeks)", "Gestational hypertension"],
+    "medications": ["Labetalol 100mg", "Iron + folic acid"],
+    "allergies": [],
+    "baseline": {"hr": 90, "spo2": 98, "temp_c": 36.9, "resp_rate": 18, "bp_sys": 136, "bp_dia": 88},
+    "history_summary": "32 weeks pregnant with gestational hypertension. BP above 150/100, severe headache, or visual changes = pre-eclampsia risk, treat as emergency. Baseline HR elevated as expected in pregnancy."
+  },
+  {
+    "patient_id": "P-07",
+    "name": "Krishnan Nair",
+    "age": 45,
+    "sex": "M",
+    "conditions": ["Pneumonia (recovering, day 4)"],
+    "medications": ["Azithromycin 500mg", "Paracetamol as needed"],
+    "allergies": [],
+    "baseline": {"hr": 86, "spo2": 94, "temp_c": 37.4, "resp_rate": 20, "bp_sys": 124, "bp_dia": 80},
+    "history_summary": "Community-acquired pneumonia, day 4 of antibiotics, improving. SpO2 climbing back from 92 to 94. A new fever spike or SpO2 drop below 92 suggests treatment failure."
+  },
+  {
+    "patient_id": "P-08",
+    "name": "Fatima Begum",
+    "age": 61,
+    "sex": "F",
+    "conditions": ["Asthma", "Obesity"],
+    "medications": ["Budesonide/formoterol inhaler"],
+    "allergies": ["Aspirin (bronchospasm)"],
+    "baseline": {"hr": 80, "spo2": 96, "temp_c": 36.8, "resp_rate": 17, "bp_sys": 132, "bp_dia": 84},
+    "history_summary": "Moderate persistent asthma, admitted after a flare triggered by a chest infection. Rising respiratory rate is her earliest deterioration sign, before SpO2 falls. NEVER give aspirin."
+  },
+  {
+    "patient_id": "P-09",
+    "name": "Basavaraj Patil",
+    "age": 52,
+    "sex": "M",
+    "conditions": ["Alcoholic liver disease", "Ascites"],
+    "medications": ["Spironolactone 100mg", "Thiamine"],
+    "allergies": [],
+    "baseline": {"hr": 92, "spo2": 95, "temp_c": 36.6, "resp_rate": 18, "bp_sys": 108, "bp_dia": 68},
+    "history_summary": "Liver disease with fluid in the abdomen; baseline BP is LOW (105-112 systolic) — normal for him. But a further drop below 95 systolic, fever (infection of the fluid), or confusion is an emergency."
+  },
+  {
+    "patient_id": "P-10",
+    "name": "Anjali Joshi",
+    "age": 19,
+    "sex": "F",
+    "conditions": ["Dengue fever (day 5, critical phase)"],
+    "medications": ["IV fluids", "Paracetamol only"],
+    "allergies": [],
+    "baseline": {"hr": 96, "spo2": 97, "temp_c": 38.1, "resp_rate": 18, "bp_sys": 104, "bp_dia": 70},
+    "history_summary": "Dengue day 5 — the critical plasma-leak window. Fever settling can be deceptive: rising HR with narrowing pulse pressure (bp_sys minus bp_dia under 25) signals dengue shock. Platelets 48k this morning. No NSAIDs."
+  }
+]

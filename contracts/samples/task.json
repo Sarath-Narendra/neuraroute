@@ -1,11 +1,22 @@
 {
-  "task_id": "req-demo-t2",
-  "request_id": "req-demo",
-  "op": "summarize",
-  "payload": { "from": "t1" },
-  "depends_on": ["t1"],
-  "deadline_ms": 8000,
-  "privacy": "sensitive",
+  "task_id": "req-42a1b2-t1",
+  "request_id": "req-42a1b2",
+  "op": "triage",
+  "payload": {
+    "patient_id": "P-04",
+    "vitals": {"hr": 118, "spo2": 93, "temp_c": 38.9, "resp_rate": 24, "bp_sys": 102, "bp_dia": 66},
+    "profile": {
+      "patient_id": "P-04",
+      "name": "Sunita Sharma",
+      "age": 34,
+      "conditions": ["Post-operative (appendectomy, day 2)"],
+      "baseline": {"hr": 82, "spo2": 98, "temp_c": 37.2, "resp_rate": 16, "bp_sys": 116, "bp_dia": 74},
+      "history_summary": "Day 2 after appendix surgery. Fever above 38.5 suggests infection."
+    }
+  },
+  "depends_on": [],
+  "deadline_ms": 45000,
+  "privacy": "public",
   "priority": "normal",
-  "assigned_device": "phone-01"
+  "assigned_device": "cloud-01"
 }

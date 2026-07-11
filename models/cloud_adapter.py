@@ -29,6 +29,9 @@ import os
 import time
 import json
 
+from .ops import TRIAGE_SYSTEM, build_triage_prompt, normalize_severity
+from .tripwire import tripwire
+
 # ---------------------------------------------------------------------------
 # Config (kept inline and small on purpose — this is the one place to look
 # when flipping mock on/off at the venue)
@@ -39,8 +42,10 @@ NEURAROUTE_CLOUD_API_KEY = os.environ.get("NEURAROUTE_CLOUD_API_KEY", "")
 NEURAROUTE_CLOUD_MODEL = os.environ.get("NEURAROUTE_CLOUD_MODEL", "gpt-4o-mini")
 MOCK_MODE = os.environ.get("NEURAROUTE_CLOUD_MOCK", "true").lower() == "true"
 
-DEFAULT_TIMEOUT_S = 5.0
-MOCK_DELAY_S = 2.0  # matches the build plan's canned-latency number
+# GPT with a detailed transcript typically answers in 3-8 s; a hard timeout here is
+# what turns "internet died mid-call" into a clean ladder failover instead of a hang.
+DEFAULT_TIMEOUT_S = float(os.environ.get("NEURAROUTE_CLOUD_TIMEOUT_S", "15.0"))
+MOCK_DELAY_S = 2.0  # keeps demo latency numbers looking like a real cloud round-trip
 
 # ---------------------------------------------------------------------------
 # Call counter (for App 3 cost metrics: cloud cost = call count x price)
@@ -113,21 +118,45 @@ def _mock_call(op: str, payload: dict, start: float) -> dict:
 
 def _fake_result_for(op: str, payload: dict) -> dict:
     """
-    Plausible canned result for mock mode. Keep this in sync with the real
-    shape population_stats() produces locally (models/ops.py) so downstream
-    code can't tell the difference structurally.
+    Plausible canned result for mock mode. Keep this in sync with the real shape
+    triage produces (models/ops.py) so downstream code can't tell the difference
+    structurally. The mock severity comes from the same hard tripwire the watchdog
+    uses plus a borderline check, so demo verdicts look clinically sane.
     """
-    if op == "population_stats":
-        risks = payload.get("risks", [])
-        return {
-            "op": "population_stats",
-            "summary": f"Mock population stats computed over {len(risks)} risk records.",
-            "stats": {
-                "count": len(risks),
-                "mean_risk": 0.42,
-                "high_risk_pct": 0.18,
-            },
-        }
+    if op == "triage":
+        vitals = payload.get("vitals") or {}
+        profile = payload.get("profile") or {}
+        patient_id = payload.get("patient_id") or profile.get("patient_id", "unknown")
+        name = profile.get("name", patient_id)
+        baseline = profile.get("baseline") or {}
+
+        severity, reasons = tripwire(vitals)
+        if severity != "emergency":
+            borderline = []
+            if float(vitals.get("spo2", 99) or 99) < 93:
+                borderline.append("SpO2 trending low")
+            if float(vitals.get("temp_c", 37) or 37) > 38.2:
+                borderline.append("fever")
+            if float(vitals.get("hr", 80) or 80) > 110:
+                borderline.append("tachycardia")
+            severity = "mild" if borderline else "normal"
+            reasons = borderline
+
+        deltas = []
+        for k in ("hr", "spo2", "temp_c", "resp_rate"):
+            if k in vitals and k in baseline:
+                deltas.append(f"{k} {vitals[k]} (baseline {baseline[k]})")
+        transcript = (
+            f"[MOCK GPT] Cross-referenced {name}'s record ({', '.join(profile.get('conditions', []) or ['no known conditions'])}). "
+            f"Current reading: {', '.join(deltas) or json.dumps(vitals)}. "
+            + (f"Findings: {'; '.join(reasons)}. " if reasons else "All parameters within this patient's expected range. ")
+            + {"emergency": "Immediate clinical attention required — alert the doctor now, prepare for escalation, and stay with the patient.",
+               "mild": "Give charted medication, re-check vitals in 30 minutes, and escalate if the trend worsens.",
+               "normal": "Continue routine monitoring on the next 20-second cycle; no action needed."}[severity]
+        )
+        return {"op": "triage", "patient_id": patient_id, "severity": severity,
+                "transcript": transcript}
+
     # Generic fallback for any other op accidentally routed here
     return {
         "op": op,
@@ -157,10 +186,12 @@ def _real_call(op: str, payload: dict, timeout_s: float, start: float) -> dict:
     if NEURAROUTE_CLOUD_API_KEY:
         headers["Authorization"] = f"Bearer {NEURAROUTE_CLOUD_API_KEY}"
 
+    system = TRIAGE_SYSTEM if op == "triage" else \
+        "You are a data analysis assistant. Respond with concise JSON only."
     body = {
         "model": NEURAROUTE_CLOUD_MODEL,
         "messages": [
-            {"role": "system", "content": "You are a data analysis assistant. Respond with concise JSON only."},
+            {"role": "system", "content": system},
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.2,
@@ -171,6 +202,10 @@ def _real_call(op: str, payload: dict, timeout_s: float, start: float) -> dict:
         resp.raise_for_status()
         data = resp.json()
         result = _parse_chat_completion(op, data)
+        if op == "triage":
+            profile = payload.get("profile") or {}
+            result.setdefault("patient_id",
+                              payload.get("patient_id") or profile.get("patient_id", "unknown"))
         return {
             "status": "ok",
             "result": result,
@@ -189,17 +224,13 @@ def _real_call(op: str, payload: dict, timeout_s: float, start: float) -> dict:
 
 def _build_prompt(op: str, payload: dict) -> str:
     """
-    Build the chat prompt for a given op. Same prompt-construction style as
-    App 1's ops (models/ops.py) — keep these in sync if App 1's
-    population_stats prompt changes.
+    Build the chat prompt for a given op. The triage prompt is shared with the
+    local path (models/ops.py) so every tier answers the same question.
     """
-    if op == "population_stats":
-        risks = payload.get("risks", [])
-        return (
-            "Compute summary population statistics over the following risk "
-            f"records and return JSON with keys 'summary' and 'stats': {json.dumps(risks)}"
-        )
-    return f"Perform operation '{op}' with payload: {json.dumps(payload)}"
+    if op == "triage":
+        return build_triage_prompt(payload)
+    clean = {k: v for k, v in payload.items() if k != "_device"}
+    return f"Perform operation '{op}' with payload: {json.dumps(clean)}"
 
 
 def _parse_chat_completion(op: str, data: dict) -> dict:
@@ -213,7 +244,11 @@ def _parse_chat_completion(op: str, data: dict) -> dict:
     except (json.JSONDecodeError, TypeError):
         # Endpoint didn't return clean JSON — wrap the raw text instead of
         # failing the whole call.
-        parsed = {"summary": content, "stats": {}}
+        parsed = {"transcript": content} if op == "triage" else {"summary": content, "stats": {}}
+    if op == "triage":
+        parsed["severity"] = normalize_severity(parsed.get("severity")) or "mild"
+        if not isinstance(parsed.get("transcript"), str) or not parsed["transcript"].strip():
+            parsed["transcript"] = str(content).strip()
     parsed.setdefault("op", op)
     return parsed
 

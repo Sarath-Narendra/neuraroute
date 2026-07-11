@@ -2,26 +2,48 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "neuraroute/task.schema.json",
   "title": "Task",
-  "description": "Engine -> device dispatch, published to neuraroute/task/<device_id>.",
+  "description": "Engine -> device dispatch, published to neuraroute/task/<device_id>. v2: the only op is `triage`.",
   "type": "object",
   "required": ["task_id", "request_id", "op", "payload", "assigned_device"],
   "additionalProperties": false,
   "properties": {
-    "task_id": { "type": "string", "description": "unique, e.g. req42-t2" },
-    "request_id": { "type": "string", "description": "the parent request this task belongs to" },
-    "op": { "type": "string", "description": "one of OPS (or echo)" },
+    "task_id": { "type": "string", "description": "unique, e.g. req42-t1" },
+    "request_id": { "type": "string", "description": "the parent request (one reading) this task belongs to" },
+    "op": { "type": "string", "description": "one of OPS (or echo); v2: triage" },
     "payload": {
       "type": "object",
-      "description": "what run_model(op, payload) receives. Always {\"inputs\": {<upstream_local_id>: <that task's result>}}; the entry task (extract_text) additionally gets {\"document\": {\"filename\", \"bytes\", \"pdf_b64\"}} — the uploaded PDF base64-encoded."
+      "description": "what run_model(op, payload) receives",
+      "required": ["patient_id", "vitals"],
+      "additionalProperties": true,
+      "properties": {
+        "patient_id": { "type": "string", "description": "e.g. P-04" },
+        "vitals": {
+          "type": "object",
+          "description": "the fresh sensor reading",
+          "additionalProperties": true,
+          "properties": {
+            "hr": { "type": "number", "description": "heart rate, bpm" },
+            "spo2": { "type": "number", "description": "oxygen saturation, %" },
+            "temp_c": { "type": "number", "description": "body temperature, Celsius" },
+            "resp_rate": { "type": "number", "description": "breaths per minute" },
+            "bp_sys": { "type": "number", "description": "systolic BP, mmHg" },
+            "bp_dia": { "type": "number", "description": "diastolic BP, mmHg" }
+          }
+        },
+        "profile": {
+          "type": "object",
+          "description": "the patient's record (history, conditions, baseline vitals) for cross-referencing; devices may substitute their own local copy"
+        }
+      }
     },
     "depends_on": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "task_ids that must complete first (engine only dispatches when ready)"
+      "description": "v2: always [] (single-task runs)"
     },
-    "deadline_ms": { "type": "number", "minimum": 0, "description": "per-task timeout; miss -> failover" },
+    "deadline_ms": { "type": "number", "minimum": 0, "description": "per-task timeout; miss -> failover down the ladder" },
     "privacy": { "type": "string", "enum": ["sensitive", "public"] },
     "priority": { "type": "string", "enum": ["normal", "high"] },
-    "assigned_device": { "type": "string", "description": "device_id the scheduler chose" }
+    "assigned_device": { "type": "string", "description": "device_id the ladder chose" }
   }
 }

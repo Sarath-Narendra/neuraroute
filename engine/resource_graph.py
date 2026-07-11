@@ -54,8 +54,6 @@ class ResourceGraph:
                 did: {
                     "alive": d["alive"],
                     "last_seen": round(d["last_seen"], 2),
-                    "battery": d["hb"].get("battery"),
-                    "accelerators": d["hb"].get("accelerators"),
                     "models": d["hb"].get("models"),
                     "privacy_ok": d["hb"].get("privacy_ok"),
                 }

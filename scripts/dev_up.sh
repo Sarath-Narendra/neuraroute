@@ -1,131 +1,103 @@
 #!/usr/bin/env bash
-# Expected usage:
+# NeuraRoute v2 — one-command dev stack (the whole system on one laptop, no hardware).
+#
 #   ./scripts/dev_up.sh
-# Run this from the repository root. It starts Mosquitto (if needed), launches
-# the runtime device agents from runtime/configs/*.yaml, and prints the PID/log
-# status for each process it starts.
-# Note: this is intended to work on macOS/Linux and in Git Bash/WSL on Windows.
-
+#
+# Starts, in order:  mosquitto broker -> mock LLM (:1234) -> engine (:8000)
+#                    -> 4 tier agents (cloud, pc, phone, arduino)
+# Then point the phone app (mobile/) at this laptop's IP and submit readings.
+#
+# Env overrides:
+#   NEURAROUTE_LOCAL_BASE_URL   real LM Studio URL for the pc/phone tiers (skips the mock LLM)
+#   NEURAROUTE_CLOUD_MOCK=false + NEURAROUTE_CLOUD_BASE_URL/API_KEY   real GPT for the cloud tier
+#   NEURAROUTE_PORT             engine port (default 8000)
+#
+# Ctrl-C tears everything down.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PIDS_DIR="$REPO_ROOT/run/pids"
 LOGS_DIR="$REPO_ROOT/run/logs"
-
 mkdir -p "$PIDS_DIR" "$LOGS_DIR"
 
-if command -v python3 >/dev/null 2>&1; then
-  PYTHON_BIN="python3"
-elif command -v python >/dev/null 2>&1; then
-  PYTHON_BIN="python"
+# Prefer the repo venv's python so deps are guaranteed present.
+if [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then
+  PY="$REPO_ROOT/.venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+  PY="python3"
 else
-  echo "Error: python not found in PATH" >&2
-  exit 1
+  PY="python"
 fi
 
-if [[ -n "${NEURAROUTE_BROKER:-}" ]]; then
-  export NEURAROUTE_BROKER
-else
-  export NEURAROUTE_BROKER="localhost:1883"
-fi
+export NEURAROUTE_BROKER="${NEURAROUTE_BROKER:-localhost}"
+export NEURAROUTE_PORT="${NEURAROUTE_PORT:-8000}"
+export NEURAROUTE_CLOUD_MOCK="${NEURAROUTE_CLOUD_MOCK:-true}"
 
-broker_up() {
-  if command -v nc >/dev/null 2>&1; then
-    if nc -z localhost 1883 >/dev/null 2>&1; then
-      return 0
-    fi
-  fi
-
-  if command -v pgrep >/dev/null 2>&1; then
-    if pgrep -af "mosquitto" >/dev/null 2>&1; then
-      return 0
-    fi
-  else
-    if ps -ef | grep -v grep | grep -q "mosquitto"; then
-      return 0
-    fi
-  fi
-
-  if command -v mosquitto >/dev/null 2>&1; then
-    mosquitto -d
-    sleep 1
-    if command -v nc >/dev/null 2>&1; then
-      if nc -z localhost 1883 >/dev/null 2>&1; then
-        echo "Mosquitto started on localhost:1883"
-        return 0
-      fi
-    fi
-    echo "Error: Mosquitto was launched but localhost:1883 is not accepting connections" >&2
-    exit 1
-  fi
-
-  echo "Error: Mosquitto could not be started; install mosquitto or start it manually" >&2
-  exit 1
+started=()
+launch() {  # name  command
+  local name="$1" cmd="$2"
+  local log="$LOGS_DIR/$name.log" pid="$PIDS_DIR/$name.pid"
+  : > "$log"
+  bash -lc "$cmd" >>"$log" 2>&1 &
+  echo $! > "$pid"
+  started+=("$name:$!")
+  printf '  %-12s pid %-7s log %s\n' "$name" "$!" "$log"
 }
 
 cleanup() {
-  echo "Stopping launched processes..."
-  if compgen -G "$PIDS_DIR"/*.pid >/dev/null 2>&1; then
-    for pid_file in "$PIDS_DIR"/*.pid; do
-      if [[ -f "$pid_file" ]]; then
-        pid="$(cat "$pid_file")"
-        if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
-          kill "$pid" 2>/dev/null || true
-        fi
-        rm -f "$pid_file"
-      fi
-    done
-  fi
-  echo "Cleanup complete"
+  echo; echo "Stopping..."
+  for pf in "$PIDS_DIR"/*.pid; do
+    [[ -f "$pf" ]] || continue
+    local_pid="$(cat "$pf")"
+    kill "$local_pid" 2>/dev/null || true
+    rm -f "$pf"
+  done
+  echo "Down."
 }
 trap cleanup INT TERM
 
-broker_up
-
-started_entries=()
-launch_process() {
-  local name="$1"
-  local command="$2"
-  local log_file="$3"
-  local pid_file="$4"
-
-  mkdir -p "$(dirname "$log_file")"
-  : > "$log_file"
-  bash -lc "$command" >>"$log_file" 2>&1 &
-  local pid=$!
-  echo "$pid" > "$pid_file"
-  started_entries+=("$name|$pid|$log_file|$pid_file")
-  echo "Started $name (PID $pid, log $log_file)"
-}
-
-for config in "$REPO_ROOT"/runtime/configs/*.yaml; do
-  if [[ ! -f "$config" ]]; then
-    continue
+# 1) broker
+if ! nc -z localhost 1883 >/dev/null 2>&1; then
+  if command -v mosquitto >/dev/null 2>&1; then
+    mosquitto -d; sleep 1
+    echo "  mosquitto    started on :1883"
+  else
+    echo "ERROR: mosquitto not found (brew install mosquitto)"; exit 1
   fi
-  device_id="$("$PYTHON_BIN" - <<'PY' "$config"
-import sys, yaml
-from pathlib import Path
-with open(sys.argv[1], 'r', encoding='utf-8') as handle:
-    data = yaml.safe_load(handle) or {}
-print(data.get('device_id', Path(sys.argv[1]).stem))
-PY
-)"
-  log_file="$LOGS_DIR/${device_id}.log"
-  pid_file="$PIDS_DIR/${device_id}.pid"
-  launch_process "$device_id" "cd '$REPO_ROOT' && '$PYTHON_BIN' runtime/agent.py '$config'" "$log_file" "$pid_file"
-  sleep 0.5
-done
-
-if [[ -f "$REPO_ROOT/contracts/fake_engine.py" ]]; then
-  launch_process "fake_engine" "cd '$REPO_ROOT' && '$PYTHON_BIN' contracts/fake_engine.py" "$LOGS_DIR/fake_engine.log" "$PIDS_DIR/fake_engine.pid"
 else
-  echo "fake_engine.py not found yet — skipping, ask Sarath"
+  echo "  mosquitto    already up on :1883"
 fi
 
-printf '\nStarted processes:\n'
-printf '%-20s %-8s %s\n' "device_id" "PID" "log_file"
-for entry in "${started_entries[@]}"; do
-  IFS='|' read -r name pid log_file _ <<< "$entry"
-  printf '%-20s %-8s %s\n' "$name" "$pid" "$log_file"
+# 2) mock LLM for the local tiers — unless a real LM Studio URL is provided
+if [[ -z "${NEURAROUTE_LOCAL_BASE_URL:-}" ]]; then
+  export NEURAROUTE_LOCAL_BASE_URL="http://localhost:1234/v1"
+  launch "mock_llm" "cd '$REPO_ROOT' && exec '$PY' tools/mock_llm.py 1234"
+  sleep 1
+else
+  echo "  local LLM    using $NEURAROUTE_LOCAL_BASE_URL (mock LLM skipped)"
+fi
+
+# 3) engine
+launch "engine" "cd '$REPO_ROOT' && exec '$PY' -m engine.app"
+sleep 2
+
+# 4) the four tiers of the ladder. PID files are keyed by device_id so
+#    kill_device.sh <device_id> can hard-kill a tier on cue (the failover demo).
+for cfg in cloud:cloud-01 pc:pc-01 phone:phone-01 arduino:arduino-01; do
+  file="${cfg%%:*}"; did="${cfg##*:}"
+  launch "$did" "cd '$REPO_ROOT' && exec '$PY' runtime/agent.py runtime/configs/$file.yaml"
+  sleep 0.4
 done
+
+echo
+echo "NeuraRoute up. Engine: http://$(ipconfig getifaddr en0 2>/dev/null || echo localhost):${NEURAROUTE_PORT}"
+echo "Phone app: cd mobile && npx expo start   (phone on this laptop's hotspot)"
+echo "Submit a reading:"
+echo "  curl -XPOST localhost:${NEURAROUTE_PORT}/request -H 'Content-Type: application/json' \\"
+echo "       -d '{\"patient_id\":\"P-03\",\"vitals\":{\"hr\":176,\"spo2\":79,\"temp_c\":37,\"resp_rate\":32}}'"
+echo "Kill a tier (drive the failover):  ./scripts/kill_device.sh cloud-01"
+echo "Ctrl-C to stop everything."
+echo
+# wait forever (until Ctrl-C)
+while true; do sleep 3600; done

@@ -1,12 +1,13 @@
+# Tier 4 of the ladder — the last-resort SLM — AND the always-on watchdog.
+# The watchdog analyzes EVERY reading (tripwire + SLM) independent of the ladder,
+# raises sos alerts to the doctor's phone, and narrates verdicts on the serial
+# bridge -> STM32 -> Arduino IDE serial monitor.
 device_id: arduino-01
 device_type: arduino
-accelerators:
-  - cpu
 supported_ops:
   - echo
-  - flag_risk
-  - doc_event_detect
+  - triage
 privacy_ok: true
-telemetry_mode: simulated
-models: []
-# TODO: fill in once models/ team confirms model IDs per device
+watchdog: true
+records_path: data/patients.json   # the on-chip local copy of all patient records
+serial_port: null                  # e.g. /dev/ttyAMA0 on the Uno Q; null = log-only (dev)

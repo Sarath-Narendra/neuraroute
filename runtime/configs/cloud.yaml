@@ -1,14 +1,8 @@
+# Tier 1 of the ladder: GPT via the cloud adapter. "Internet down" = this tier's
+# GPT call errors (or the agent goes stale) -> the engine slides down the ladder.
 device_id: cloud-01
 device_type: cloud
-accelerators:
-  - cpu
-  - gpu
 supported_ops:
   - echo
-  - summarize
-  - population_stats
-  - patient_explainer
-privacy_ok: false         # off-device: only public (cloud-eligible) tasks route here
-telemetry_mode: simulated
-models: []
-# TODO(models team): fill in model IDs per device once confirmed
+  - triage
+privacy_ok: false

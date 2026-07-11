@@ -1,36 +1,37 @@
 #!/usr/bin/env python3
-"""NeuraRoute Decision Engine -- Day-1 skeleton.
+"""NeuraRoute Decision Engine v2 — vitals triage down the connectivity ladder.
 
-What works today:
-  * subscribes to neuraroute/heartbeat, builds an in-memory Resource Graph
-  * logs and emits device_alive / device_stale transitions (3 s timeout)
-  * re-broadcasts every engine event to neuraroute/event AND to connected dashboards over /ws
-  * HTTP: GET /health, GET /devices, POST /request (stub), WS /ws
-
-Coming Friday (P1): scheduler cost function, hardcoded DAG planner, dispatch, failover.
+What it does:
+  * subscribes to neuraroute/heartbeat, tracks tier liveness (3 s stale timeout)
+  * POST /request takes a reading {patient_id, vitals} -> one triage task, dispatched
+    to the highest alive tier (cloud -> pc -> phone -> arduino); stale/error/timeout
+    cascades down the ladder
+  * fans every raw reading out on neuraroute/reading (the arduino watchdog's input)
+  * forwards watchdog alerts from neuraroute/sos to every UI as an `sos` event
+  * re-broadcasts every engine event to neuraroute/event AND to connected apps over /ws
+  * HTTP: GET /health, /devices, /patients, /status ; POST /request ; WS /ws
 
 Run from repo root:
     python -m engine.app
     NEURAROUTE_BROKER=192.168.1.5 NEURAROUTE_PORT=8000 python -m engine.app
 """
 import asyncio
-import base64
 import json
 import logging
 import os
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 
 from contracts.topics import (
-    BROKER_PORT, CONTRACTS_VERSION, EV_POLICY, TOPIC_EVENT, TOPIC_HEARTBEAT,
-    TOPIC_RESULT_WILDCARD, broker_host,
+    BROKER_PORT, CONTRACTS_VERSION, EV_SOS, TOPIC_EVENT, TOPIC_HEARTBEAT,
+    TOPIC_READING, TOPIC_RESULT_WILDCARD, TOPIC_SOS, broker_host,
 )
 from engine.orchestrator import Orchestrator
-from engine.policy import Policy
 from engine.resource_graph import ResourceGraph
 from engine.scheduler import Scheduler
 
@@ -42,12 +43,31 @@ graph = ResourceGraph()
 _ws_clients: set[WebSocket] = set()
 _main_loop: asyncio.AbstractEventLoop | None = None
 _mqtt: mqtt.Client | None = None
-policy: Policy | None = None
 scheduler: Scheduler | None = None
 orchestrator: Orchestrator | None = None
 
 
-# --- event fan-out: MQTT (neuraroute/event) + every connected dashboard --------------
+# --- patient records (the ward roster; each tier also carries its own local copy) ----
+def _records_path() -> Path:
+    env = os.environ.get("NEURAROUTE_RECORDS")
+    if env:
+        return Path(env)
+    return Path(__file__).resolve().parent.parent / "data" / "patients.json"
+
+
+def _load_patients() -> dict:
+    try:
+        with open(_records_path()) as f:
+            return {p["patient_id"]: p for p in json.load(f)}
+    except Exception:
+        log.exception("could not load patient records from %s — running with none", _records_path())
+        return {}
+
+
+PATIENTS = _load_patients()
+
+
+# --- event fan-out: MQTT (neuraroute/event) + every connected app --------------------
 def emit_event(event: dict):
     payload = json.dumps(event)
     if _mqtt is not None:
@@ -74,6 +94,7 @@ def _on_connect(client, userdata, flags, reason_code, properties=None):
     log.info("connected to broker %s:%s (rc=%s)", broker_host(), BROKER_PORT, reason_code)
     client.subscribe(TOPIC_HEARTBEAT)
     client.subscribe(TOPIC_RESULT_WILDCARD)
+    client.subscribe(TOPIC_SOS)
 
 
 def _on_message(client, userdata, msg):
@@ -83,6 +104,14 @@ def _on_message(client, userdata, msg):
             if event:
                 log.info("device %s ALIVE", event["device_id"])
                 emit_event(event)
+        elif msg.topic == TOPIC_SOS:
+            # the always-on watchdog raised an extreme emergency — forward to every app
+            sos = json.loads(msg.payload)
+            sos.setdefault("type", EV_SOS)
+            sos.setdefault("ts", time.time())
+            log.warning("SOS from %s: patient %s — %s",
+                        sos.get("source", "?"), sos.get("patient_id"), sos.get("reason"))
+            emit_event(sos)
         elif msg.topic.startswith("neuraroute/result/"):
             res = json.loads(msg.payload)
             log.info("result %s from %s: %s (%.0f ms)", res.get("task_id"), res.get("device_id"),
@@ -93,7 +122,7 @@ def _on_message(client, userdata, msg):
         log.exception("bad message on %s", msg.topic)
 
 
-# --- monitor loop: age devices out, emit stale events --------------------------------
+# --- monitor loop: age tiers out, emit stale events -----------------------------------
 async def _monitor():
     while True:
         for event in graph.tick():
@@ -107,23 +136,22 @@ async def _monitor():
 # --- app lifespan --------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _main_loop, _mqtt, policy, scheduler, orchestrator
+    global _main_loop, _mqtt, scheduler, orchestrator
     _main_loop = asyncio.get_running_loop()
     _mqtt = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="neuraroute-engine")
     _mqtt.on_connect = _on_connect
     _mqtt.on_message = _on_message
-    # connect_async + auto-reconnect: broker can start after us and restart under us (chaos test)
+    # connect_async + auto-reconnect: broker can start after us and restart under us
     _mqtt.reconnect_delay_set(min_delay=1, max_delay=5)
     _mqtt.connect_async(broker_host(), BROKER_PORT, keepalive=30)
     _mqtt.loop_start()
-    policy = Policy()
-    scheduler = Scheduler(graph, policy)
+    scheduler = Scheduler(graph)
     orchestrator = Orchestrator(graph, scheduler,
                                 publish=lambda topic, payload: _mqtt.publish(topic, payload),
                                 emit=emit_event, loop=_main_loop)
     monitor = asyncio.create_task(_monitor())
-    log.info("NeuraRoute engine up (contracts v%s, policy=%s) -- waiting for heartbeats",
-             CONTRACTS_VERSION, policy.active_profile)
+    log.info("NeuraRoute engine up (contracts v%s, %d patients on file) -- waiting for heartbeats",
+             CONTRACTS_VERSION, len(PATIENTS))
     try:
         yield
     finally:
@@ -137,7 +165,8 @@ app = FastAPI(title="NeuraRoute Engine", version=CONTRACTS_VERSION, lifespan=lif
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "contracts": CONTRACTS_VERSION, "devices": graph.summary()}
+    return {"status": "ok", "contracts": CONTRACTS_VERSION,
+            "patients": len(PATIENTS), "devices": graph.summary()}
 
 
 @app.get("/devices")
@@ -145,49 +174,40 @@ def devices():
     return graph.summary()
 
 
+@app.get("/patients")
+def patients():
+    """The ward roster — the phone app builds its 10 patient cards from this."""
+    return list(PATIENTS.values())
+
+
 @app.post("/request", status_code=202)
 async def create_request(req: Request):
-    """Upload a PDF (multipart form field `file`) from the phone browser -> orchestrated DAG run.
+    """One sensor reading: {patient_id, vitals: {hr, spo2, temp_c, resp_rate, ...}}.
 
-    Also accepts a JSON body or an empty body to trigger a run with no file (demo/tests) —
-    in that case the entry task gets a placeholder document descriptor.
+    Kicks off a triage run down the ladder AND fans the raw reading out on
+    neuraroute/reading for the always-on arduino watchdog.
     """
-    document = None
-    request_id = None
-    if req.headers.get("content-type", "").startswith("multipart/form-data"):
-        form = await req.form()
-        upload = form.get("file")
-        if upload is not None and hasattr(upload, "read"):
-            data = await upload.read()
-            document = {"filename": upload.filename or "upload.pdf", "bytes": len(data),
-                        "pdf_b64": base64.b64encode(data).decode()}
-        request_id = form.get("request_id")
-    else:
-        try:
-            body = await req.json()
-        except Exception:
-            body = {}
-        request_id = (body or {}).get("request_id")
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    body = body or {}
+    patient_id = str(body.get("patient_id") or "unknown")
+    vitals = body.get("vitals") or {}
+    if not isinstance(vitals, dict):
+        return {"accepted": False, "error": "vitals must be an object"}
+    request_id = body.get("request_id") or f"req-{uuid.uuid4().hex[:6]}"
+    profile = PATIENTS.get(patient_id, {})
+    if not profile:
+        log.warning("reading for unknown patient %s — triaging without a record", patient_id)
 
-    request_id = request_id or f"req-{uuid.uuid4().hex[:6]}"
-    orchestrator.start_run(request_id, document=document)
-    log.info("POST /request -> %s (file=%s)", request_id, document and document["filename"])
-    resp = {"accepted": True, "request_id": request_id}
-    if document:
-        resp["document"] = {"filename": document["filename"], "bytes": document["bytes"]}
-    return resp
+    # safety path: raw reading to the watchdog, no matter what the ladder does
+    _mqtt.publish(TOPIC_READING, json.dumps(
+        {"patient_id": patient_id, "vitals": vitals, "ts": time.time(), "request_id": request_id}))
 
-
-@app.post("/policy")
-async def set_policy(body: dict):
-    """Flip the scheduler profile live (speed_first <-> battery_saver) — the demo toggle."""
-    profile = (body or {}).get("profile", "")
-    if not policy.set_profile(profile):
-        return {"ok": False, "error": f"unknown profile '{profile}'"}
-    emit_event({"type": EV_POLICY, "ts": time.time(), "reason": f"policy -> {profile}",
-                "profile": profile})
-    log.info("policy flipped -> %s %s", profile, policy.weights())
-    return {"ok": True, "active_profile": profile, "weights": policy.weights()}
+    orchestrator.start_run(request_id, patient_id=patient_id, vitals=vitals, profile=profile)
+    log.info("POST /request -> %s (patient=%s)", request_id, patient_id)
+    return {"accepted": True, "request_id": request_id, "patient_id": patient_id}
 
 
 @app.get("/status")
@@ -199,7 +219,7 @@ def status():
 async def ws(websocket: WebSocket):
     await websocket.accept()
     _ws_clients.add(websocket)
-    log.info("dashboard connected (%d total)", len(_ws_clients))
+    log.info("app connected (%d total)", len(_ws_clients))
     try:
         for snap in graph.alive_snapshot_events():  # bring the new client up to date
             await websocket.send_text(json.dumps(snap))
@@ -209,7 +229,7 @@ async def ws(websocket: WebSocket):
         pass
     finally:
         _ws_clients.discard(websocket)
-        log.info("dashboard disconnected (%d left)", len(_ws_clients))
+        log.info("app disconnected (%d left)", len(_ws_clients))
 
 
 def main():

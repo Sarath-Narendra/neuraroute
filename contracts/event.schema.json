@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "neuraroute/event.schema.json",
   "title": "Event",
-  "description": "Engine -> dashboard, published to neuraroute/event and streamed over the engine /ws. One schema, discriminated by 'type'. Most fields are optional so the dashboard can render whatever a given event carries.",
+  "description": "Engine -> UIs (the doctor's phone app), published to neuraroute/event and streamed over the engine /ws. One schema, discriminated by 'type'. Most fields are optional so a UI can render whatever a given event carries. v2 additions: patient_id/vitals on request_start, result on task_done, severity/reason/vitals/source on sos.",
   "type": "object",
   "required": ["type", "ts"],
   "additionalProperties": true,
@@ -18,16 +18,18 @@
     "ts": { "type": "number", "description": "unix epoch seconds" },
     "request_id": { "type": "string" },
     "task_id": { "type": "string" },
-    "device_id": { "type": "string", "description": "device the event is about (e.g. where a task was placed)" },
-    "from_device": { "type": "string", "description": "on failover: the device that dropped" },
+    "device_id": { "type": "string", "description": "device/tier the event is about" },
+    "from_device": { "type": "string", "description": "on failover: the tier that dropped or errored" },
     "op": { "type": "string" },
-    "reason": { "type": "string", "description": "human-readable scheduler reason, shown on the projector" },
-    "score": {
-      "type": "object",
-      "description": "scheduler score breakdown for the chosen device (latency/energy/cost/privacy terms)"
-    },
-    "heartbeat": { "type": "object", "description": "device telemetry snapshot on device_alive" },
-    "metrics": { "type": "object", "description": "baseline-vs-orchestrated numbers on a metrics event" },
+    "reason": { "type": "string", "description": "human-readable explanation, shown in the app's activity feed" },
+    "patient_id": { "type": "string", "description": "which patient this reading/verdict/alert is about" },
+    "vitals": { "type": "object", "description": "the raw reading (on request_start and sos)" },
+    "severity": { "type": "string", "enum": ["normal", "mild", "emergency"], "description": "triage verdict (on sos / request_done)" },
+    "result": { "type": "object", "description": "on task_done: the triage output {patient_id, severity, transcript}" },
+    "source": { "type": "string", "description": "on sos: what raised it, e.g. watchdog-arduino-01" },
+    "score": { "type": "object", "description": "ladder breakdown for the chosen tier (tier index, ladder order)" },
+    "heartbeat": { "type": "object", "description": "device liveness snapshot on device_alive" },
+    "metrics": { "type": "object", "description": "run metrics: latency, tier, failovers, failover_time_s, cloud_calls" },
     "priority": { "type": "string", "enum": ["normal", "high"] }
   }
 }

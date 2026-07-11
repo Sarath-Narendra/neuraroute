@@ -1,13 +1,6 @@
 {
   "device_id": "pc-01",
-  "ts": 1752230400.0,
-  "accelerators": ["cpu", "npu"],
-  "models": ["extract_text", "summarize", "flag_risk", "patient_explainer"],
-  "battery": null,
-  "cpu_load": 0.32,
-  "npu_load": 0.10,
-  "ram_free_mb": 18432,
-  "net": { "reachable": true, "latency_ms": 8 },
-  "privacy_ok": true,
-  "telemetry_mode": "simulated"
+  "ts": 1783785600.0,
+  "models": ["echo", "triage"],
+  "privacy_ok": true
 }
