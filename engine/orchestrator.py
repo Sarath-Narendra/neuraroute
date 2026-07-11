@@ -189,7 +189,9 @@ class Orchestrator:
     def _finish(self, run):
         latency = round(time.time() - run.started, 2)
         placement = {t["local_id"]: t["assigned"] for t in run.tasks.values()}
-        metrics = {"latency_s": latency, "cloud_calls": run.cloud_calls,
+        # keys match contracts/fake_engine.py + the dashboard's metrics reader.
+        # baseline/speedup/battery_delta come from Eswar's metrics.json (needs a baseline run).
+        metrics = {"latency_orchestrated_s": latency, "cloud_calls": run.cloud_calls,
                    "failovers": run.failovers, "failover_time_s": run.failover_time_s}
         log.info("run %s DONE in %.2fs  placement=%s  metrics=%s",
                  run.request_id, latency, placement, metrics)
