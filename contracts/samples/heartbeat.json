@@ -6,7 +6,6 @@
   "battery": null,
   "cpu_load": 0.32,
   "npu_load": 0.10,
-  "temperature_c": 46.0,
   "ram_free_mb": 18432,
   "net": { "reachable": true, "latency_ms": 8 },
   "privacy_ok": true,

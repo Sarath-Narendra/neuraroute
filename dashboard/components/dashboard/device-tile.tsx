@@ -1,3 +1,5 @@
+"use client";
+
 import type { DashboardDevice } from "./types";
 
 interface DeviceTileProps {
@@ -24,7 +26,7 @@ function Bar({ value, accent }: { value: number; accent: string }) {
 
 export function DeviceTile({ device }: DeviceTileProps) {
   return (
-    <article className="rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,_rgba(255,255,255,0.07),_rgba(255,255,255,0.03))] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.24)] backdrop-blur">
+    <article className="rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))] p-4 shadow-[0_18px_50px_rgba(0,0,0,0.24)] backdrop-blur">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-zinc-300">{device.kind}</p>

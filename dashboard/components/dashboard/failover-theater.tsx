@@ -1,3 +1,5 @@
+"use client";
+
 import type { FailoverStory } from "./types";
 
 interface FailoverTheaterProps {

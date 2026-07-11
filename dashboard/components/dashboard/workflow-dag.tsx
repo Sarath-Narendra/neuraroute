@@ -1,3 +1,5 @@
+"use client";
+
 import type { DagEdge, DagNode } from "./types";
 
 interface WorkflowDagProps {

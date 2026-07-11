@@ -6,7 +6,7 @@ your own file, or integration will drift. Any change needs a version bump + grou
 """
 import os
 
-CONTRACTS_VERSION = "1.0.0"
+CONTRACTS_VERSION = "1.1.0"   # 1.1.0: removed heartbeat temperature_c (unused — Gowtham, 2026-07)
 
 # --- MQTT topics (frozen) ---
 TOPIC_HEARTBEAT = "neuraroute/heartbeat"          # device -> engine, every ~1.5 s
