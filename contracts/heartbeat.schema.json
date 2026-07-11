@@ -31,7 +31,6 @@
     },
     "cpu_load": { "type": "number", "minimum": 0, "maximum": 1 },
     "npu_load": { "type": "number", "minimum": 0, "maximum": 1 },
-    "temperature_c": { "type": "number" },
     "ram_free_mb": { "type": "number", "minimum": 0 },
     "net": {
       "type": "object",

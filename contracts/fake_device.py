@@ -70,7 +70,6 @@ class DeviceSim:
         self.battery = dict(spec["battery"]) if spec["battery"] else None
         self.cpu_load = random.uniform(0.1, 0.3)
         self.npu_load = random.uniform(0.05, 0.2)
-        self.temperature_c = random.uniform(40, 48)
         self._running = True
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
                                   client_id=f"fake-{device_id}")
@@ -159,7 +158,6 @@ class DeviceSim:
                                  charging=self.battery["charging"]) if self.battery else None),
                 "cpu_load": round(self.cpu_load, 3),
                 "npu_load": round(self.npu_load, 3),
-                "temperature_c": round(self.temperature_c, 1),
                 "ram_free_mb": random.randint(2000, 20000),
                 "net": {"reachable": True, "latency_ms": self.base_latency_ms + random.randint(0, 10)},
                 "privacy_ok": self.privacy_ok,
@@ -172,7 +170,6 @@ class DeviceSim:
         # random-walk the load; slowly drain a discharging battery
         self.cpu_load = min(1.0, max(0.02, self.cpu_load + random.uniform(-0.05, 0.05)))
         self.npu_load = min(1.0, max(0.02, self.npu_load + random.uniform(-0.05, 0.05)))
-        self.temperature_c = min(85.0, max(35.0, self.temperature_c + random.uniform(-0.5, 0.6)))
         if self.battery and not self.battery["charging"]:
             self.battery["percent"] = max(1.0, self.battery["percent"] - 0.1)
 
