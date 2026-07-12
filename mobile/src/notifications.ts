@@ -1,71 +1,28 @@
-import { Platform } from "react-native";
-import * as Notifications from "expo-notifications";
-
 /**
- * Local (on-device) emergency notifications. Deliberately NOT push notifications:
- * the failsafe fires exactly when the internet is down, so delivery must not depend
- * on a cloud push server. The app raises the OS notification itself off the WS event.
+ * Notifications shim for Expo Go (SDK 53+).
+ *
+ * `expo-notifications` now throws in Expo Go the moment its module initializes:
+ *   "Android Push notifications … was removed from Expo Go. Use a development build."
+ * Even a plain `import * as Notifications from "expo-notifications"` pulls in that push
+ * path and crashes the app on launch (the red "[runtime not ready]" screen).
+ *
+ * The demo does NOT need OS-level notifications — the in-app EmergencyBanner in App.tsx
+ * already surfaces the SOS visually the instant it lands. These no-ops keep the app
+ * running in Expo Go.
+ *
+ * To restore real on-device OS notifications later, make a DEVELOPMENT BUILD
+ * (`npx expo prebuild` / EAS build) instead of using Expo Go, then re-add the original
+ * expo-notifications implementation (local notifications, not push — see git history).
  */
 
-// Show the alert even when the app is foregrounded (doctor may be staring at the board).
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    // new API (SDK 53+)
-    shouldShowBanner: true,
-    shouldShowList: true,
-    // legacy field kept for safety on older runtimes
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
-
-const CHANNEL_ID = "neuraroute-emergency";
-
 export async function initNotifications(): Promise<boolean> {
-  try {
-    if (Platform.OS === "android") {
-      await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
-        name: "Emergencies",
-        importance: Notifications.AndroidImportance.MAX,
-        sound: "default",
-        vibrationPattern: [0, 400, 200, 400],
-        lightColor: "#FF3B30",
-        bypassDnd: true,
-      });
-    }
-    const settings = await Notifications.getPermissionsAsync();
-    let status = settings.status;
-    if (status !== "granted") {
-      const req = await Notifications.requestPermissionsAsync();
-      status = req.status;
-    }
-    return status === "granted";
-  } catch {
-    return false; // web / unsupported runtime — the in-app banner still works
-  }
+  return false; // no OS notifications in Expo Go; the in-app banner still works
 }
 
 export async function fireEmergency(
-  patientId: string,
-  patientName: string | undefined,
-  reason: string,
+  _patientId: string,
+  _patientName: string | undefined,
+  _reason: string,
 ): Promise<void> {
-  const who = patientName ? `${patientName} (${patientId})` : patientId;
-  try {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: `🚨 EMERGENCY — ${who}`,
-        body: reason || "Extreme vitals detected. Attend immediately.",
-        sound: "default",
-        priority: Notifications.AndroidNotificationPriority.MAX,
-        vibrate: [0, 400, 200, 400],
-        data: { patientId },
-      },
-      trigger: null, // fire immediately
-      ...(Platform.OS === "android" ? { identifier: undefined } : {}),
-    } as any);
-  } catch {
-    // never let a notification failure crash the stream handler
-  }
+  // no-op in Expo Go — the in-app EmergencyBanner handles the visual alert
 }
