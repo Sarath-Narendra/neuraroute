@@ -37,7 +37,10 @@ class CloudModel:
                 raise RuntimeError(
                     "GROQ_API_KEY not set — cloud tier fails over down the ladder"
                 )
-            self._client = Groq(api_key=api_key)
+            # Bounded + no retries so that when the internet drops, this call fails FAST and the
+            # engine slides down the ladder within a few seconds (not the SDK's default retry/backoff,
+            # which can drag the on-stage failover to 10-15s). That fast, clean degradation IS the demo.
+            self._client = Groq(api_key=api_key, timeout=5.0, max_retries=0)
         return self._client
 
     def infer(self, patient):
