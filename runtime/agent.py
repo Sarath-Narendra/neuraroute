@@ -195,7 +195,12 @@ class DeviceAgent:
         elif message.topic == TOPIC_READING:
             threading.Thread(target=self._handle_reading, args=(message,), daemon=True).start()
         else:
-            self._handle_task_message(client, message)
+            # Offload triage to a worker thread (like the reading path above). run_model can
+            # block for seconds on a real /infer (the phone SLM esp.), and this callback runs
+            # on paho's single network thread — blocking it starves outgoing heartbeats, so the
+            # engine's 3 s stale monitor falsely marks the tier dropped mid-task and fails the
+            # reading over before the (valid) verdict lands. A worker keeps heartbeats flowing.
+            threading.Thread(target=self._handle_task_message, args=(client, message), daemon=True).start()
 
     def _handle_admin_message(self, message: mqtt.MQTTMessage) -> None:
         try:
