@@ -25,4 +25,15 @@ def health():
 
 @app.post("/infer")
 def infer(request: PatientRequest):
-    return model.infer(request.patient)
+    try:
+        return model.infer(request.patient)
+    except Exception as e:
+        # No "response" key -> the engine's infer_client maps this to an error and the
+        # ladder fails the task DOWN to the PC tier (e.g. no internet / no GROQ_API_KEY).
+        # That failover is the demo, so the cloud tier must degrade cleanly, not 500.
+        return {
+            "device": "cloud",
+            "runtime": model.runtime,
+            "model": model.model,
+            "error": str(e)
+        }

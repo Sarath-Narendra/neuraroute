@@ -23,5 +23,15 @@ def home():
 
 @app.post("/infer")
 def infer(request: PatientRequest):
-    result = model.infer(request.patient)
-    return result
+    try:
+        return model.infer(request.patient)
+    except Exception as e:
+        # No "response" key -> the engine's infer_client maps this to an error and the
+        # ladder fails the task DOWN to the phone tier (e.g. geniex missing / model error).
+        # Degrade cleanly instead of 500-ing so the failover demo stays smooth.
+        return {
+            "device": "laptop",
+            "runtime": "GenieX",
+            "model": model.model,
+            "error": str(e)
+        }

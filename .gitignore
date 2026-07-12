@@ -44,6 +44,11 @@ secrets.*
 *.safetensors
 models/weights/
 
+# ===== Android (Gradle build artifacts) =====
+android/.gradle/
+android/build/
+.gradle/
+
 # ===== OS / editor =====
 .DS_Store
 Thumbs.db

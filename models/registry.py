@@ -7,10 +7,11 @@ Which model + adapter runs `triage` on each tier. Pick the registry with one env
                                  real models. Local tiers hit NEURAROUTE_LOCAL_BASE_URL
                                  (LM Studio / tools/mock_llm.py); cloud is the canned mock.
 
-    NEURAROUTE_REGISTRY=venue   — the real inference module (Eswar's /infer servers):
-                                 laptop -> GenieX/Qwen at NEURAROUTE_INFER_LAPTOP_URL,
-                                 cloud  -> Groq/Llama-70B at NEURAROUTE_INFER_CLOUD_URL.
-                                 phone/arduino stay local until their /infer servers exist.
+    NEURAROUTE_REGISTRY=venue   — the real inference module (the /infer servers):
+                                 laptop -> GenieX/Qwen  at NEURAROUTE_INFER_LAPTOP_URL,
+                                 cloud  -> Groq/Llama-70B at NEURAROUTE_INFER_CLOUD_URL,
+                                 phone  -> llama.cpp SLM at NEURAROUTE_INFER_PHONE_URL.
+                                 arduino stays local until its SLM /infer server lands.
 
 `type` drives run_model's routing: "infer_http" -> models/infer_client (POST /infer),
 "cloud" -> models/cloud_adapter (canned mock), anything else -> the local op via llm_client.
@@ -20,6 +21,7 @@ import os
 # The inference servers' endpoints (override per venue/network).
 INFER_LAPTOP_URL = os.environ.get("NEURAROUTE_INFER_LAPTOP_URL", "http://localhost:8000/infer")
 INFER_CLOUD_URL = os.environ.get("NEURAROUTE_INFER_CLOUD_URL", "http://localhost:8001/infer")
+INFER_PHONE_URL = os.environ.get("NEURAROUTE_INFER_PHONE_URL", "http://localhost:8002/infer")
 
 
 # ==========================================================
@@ -39,8 +41,10 @@ DEV_REGISTRY = {
 VENUE_REGISTRY = {
     "surface":  {"triage": {"model": "Qwen3.5-2B / GenieX", "adapter": "infer_http",
                             "type": "infer_http", "infer_url": INFER_LAPTOP_URL}},
-    # phone + arduino /infer servers are pending — keep them on the local path for now
-    "phone":    {"triage": {"model": "local SLM (llama.cpp)", "adapter": "llm_client", "type": "local"}},
+    "phone":    {"triage": {"model": "Qwen3-1.7B / llama.cpp", "adapter": "infer_http",
+                            "type": "infer_http", "infer_url": INFER_PHONE_URL}},
+    # arduino /infer server is the SLM part — still pending; keep it on the local path so
+    # arduino-01 stays a live tier via the dev mock / any llama.cpp server (see models/arduino.py).
     "arduino":  {"triage": {"model": "local SLM (llama.cpp)", "adapter": "llm_client", "type": "local"}},
     "cloud":    {"triage": {"model": "llama-3.3-70b / Groq", "adapter": "infer_http",
                             "type": "infer_http", "infer_url": INFER_CLOUD_URL}},

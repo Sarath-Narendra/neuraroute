@@ -8,3 +8,6 @@ jsonschema>=4.21      # validate messages against contracts/*.schema.json
 pyyaml>=6.0           # runtime device configs + engine policy.yaml
 requests>=2.31        # models/ triage — LLM + cloud adapters (OpenAI-compatible HTTP)
 pyserial>=3.5         # runtime arduino watchdog -> STM32 serial bridge (optional; log-only if absent)
+# --- inference module: the standalone /infer servers (servers/) ---
+groq>=0.11            # servers/cloud_server.py — Groq/Llama-3.3-70B cloud tier
+python-dotenv>=1.0    # servers/cloud_server.py — load GROQ_API_KEY from .env

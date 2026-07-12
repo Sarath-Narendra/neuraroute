@@ -82,11 +82,13 @@ neuraroute/
   contracts/   # FROZEN schemas + samples + fakes (topics.py is the source of truth)
   engine/      # FastAPI + paho-mqtt + asyncio: the ladder scheduler + orchestrator
   models/      # run_model("triage", …) → {severity, transcript}; registry, LLM + GPT adapters, tripwire
+  servers/     # the inference module: per-device POST /infer servers (laptop · cloud · phone)
+  prompts/     # healthcare_system_prompt.txt — the shared triage system prompt
   runtime/     # agent.py (a tier) + configs/<tier>.yaml; the arduino agent runs the watchdog
   mobile/      # the doctor's phone app (Expo / React Native) — the UI
   arduino/     # UNO Q STM32 sketch: serial-monitor display + severity LED
-  tools/       # mock_llm.py — OpenAI-compatible triage stub (no model downloads needed)
-  scripts/     # dev_up.sh (one-command stack), kill_device.sh (failover trigger)
+  tools/       # mock_llm.py + mock_infer.py — OpenAI-compatible / /infer stubs (no model downloads)
+  scripts/     # dev_up.sh (stack), infer_up.sh (/infer servers), kill_device.sh (failover trigger)
   data/        # patients.json — the 10-patient ward roster
   docs/        # hardware bring-up runbooks (UNO Q, phone/Termux)
 ```
@@ -137,25 +139,41 @@ every emergency.
 
 ## Use the real models (the inference module)
 
-The engine is the **Router**; the real per-device model servers are a separate module that each
-expose `POST /infer` (laptop → GenieX/Qwen on `:8000`, cloud → Groq/Llama-70B on `:8001`). Point
-the ladder at them with **venue mode** — the tier agents call `/infer` over HTTP and map the reply
-into the phone app's schema:
+The engine is the **Router**; the real per-device model servers are a separate module (`servers/`)
+that each expose `POST /infer` (laptop → GenieX/Qwen on `:8000`, cloud → Groq/Llama-70B on `:8001`,
+phone → llama.cpp SLM on `:8002`). Start all three at once:
+
+```bash
+cp .env.example .env      # then set GROQ_API_KEY for the cloud tier
+./scripts/infer_up.sh     # laptop :8000 · cloud :8001 · phone :8002
+```
+
+Then point the ladder at them with **venue mode** — the tier agents call `/infer` over HTTP and map
+the reply into the phone app's schema:
 
 ```bash
 export NEURAROUTE_REGISTRY=venue
 export NEURAROUTE_INFER_LAPTOP_URL=http://<laptop-ip>:8000/infer   # default localhost:8000
 export NEURAROUTE_INFER_CLOUD_URL=http://<cloud-host>:8001/infer   # default localhost:8001
+export NEURAROUTE_INFER_PHONE_URL=http://<phone-ip>:8002/infer     # default localhost:8002
 ./scripts/dev_up.sh        # engine on :8080, agents bridge to the /infer servers
 ```
 
-Start the inference servers separately (their repo/README). The engine, phone app, failover, and
-watchdog are unchanged — only where each tier runs inference differs. `phone`/`arduino` stay on the
-local path (`NEURAROUTE_LOCAL_BASE_URL`, e.g. LM Studio / llama.cpp) until their `/infer` servers land.
-No contract changes are needed to swap dev ↔ venue; flip `NEURAROUTE_REGISTRY` and restart.
+The engine, phone app, failover, and watchdog are unchanged — only where each tier runs inference
+differs. Each `/infer` server still **boots** if its backend is missing (no `geniex`, no
+`GROQ_API_KEY`, no on-device model) and returns a clean error, so a dead tier **fails over down the
+ladder** instead of hanging — that's the demo. `arduino` stays on the local path
+(`NEURAROUTE_LOCAL_BASE_URL`, e.g. llama.cpp) until its SLM `/infer` server lands. No contract
+changes are needed to swap dev ↔ venue; flip `NEURAROUTE_REGISTRY` and restart.
 
-To verify the bridge with no real models, run `tools/mock_infer.py 8000 laptop` and
-`tools/mock_infer.py 8001 cloud` (they speak the exact `/infer` schema).
+To verify the bridge with no real models, run the mock `/infer` servers on the three ports — they
+speak the exact `/infer` schema:
+
+```bash
+python tools/mock_infer.py 8000 laptop GenieX     Qwen3.5-2B
+python tools/mock_infer.py 8001 cloud  Groq       llama-3.3-70b-versatile
+python tools/mock_infer.py 8002 phone  llama.cpp  Qwen3-1.7B
+```
 
 ---
 

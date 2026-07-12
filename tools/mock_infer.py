@@ -21,7 +21,13 @@ MODEL = sys.argv[4] if len(sys.argv) > 4 else "Qwen3.5-2B"
 
 
 def num(text, key, default):
-    m = re.search(rf"{key}\s+(\d+(?:\.\d+)?)", text, re.IGNORECASE)
+    # Read the CURRENT reading, not the baseline. infer_client._describe() renders
+    # "baseline vitals: hr 64, ..." BEFORE "CURRENT sensor reading: hr 176, ...", so a
+    # naive first-match grabs the baseline and every verdict looks normal. Scope the
+    # search to the text after the CURRENT marker when it's present.
+    marker = re.search(r"current sensor reading", text, re.IGNORECASE)
+    scope = text[marker.start():] if marker else text
+    m = re.search(rf"{key}\s+(\d+(?:\.\d+)?)", scope, re.IGNORECASE)
     return float(m.group(1)) if m else default
 
 
