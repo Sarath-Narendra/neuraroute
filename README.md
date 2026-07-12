@@ -1,12 +1,13 @@
 # NeuraRoute — Resilient Edge AI for a Night Ward
 
-**One night nurse, ten patients, and an AI that never goes dark.** NeuraRoute routes each
-patient's vitals to the best AI brain available *right now* — GPT in the cloud when there's
-internet, the laptop or the phone on the local hotspot when there isn't, and a tiny model on
-an Arduino UNO Q as the last line of defense — and it **degrades gracefully** as each tier
-drops. An always-on watchdog on the Arduino reads every vital sign in parallel and fires a
-**real notification to the doctor's phone** the instant it sees a life-threatening emergency —
-even with the internet, the laptop, the phone, and the server all down.
+**A single night-shift nurse, ten patients, and an AI brain that refuses to go dark.**
+NeuraRoute forwards each patient's vitals to whichever AI backend is strongest and reachable
+*at that moment* — GPT in the cloud when there's internet, the laptop or phone over the local
+hotspot once that's gone, and a tiny model on an Arduino UNO Q as the final fallback — and it
+**degrades gracefully** as each tier drops away. An always-on watchdog on the Arduino scans
+every vital sign in parallel and pushes a **real notification straight to the doctor's phone**
+the moment it detects a life-threatening emergency — even if the internet, the laptop, the
+phone, and the server have all gone down.
 
 Built for the **Snapdragon Multiverse Hackathon** (Bengaluru, Jul 11–12, 2026). The whole
 system runs on a single laptop with **no cloud account and no AI hardware** — the models are
@@ -16,10 +17,11 @@ stubbed by a local mock server for development.
 
 ## The idea
 
-A rural health center has one nurse watching ten patients overnight. Every ~20 seconds each
-patient's vitals (heart rate, SpO₂, temperature, respiration) are read and sent for triage.
-NeuraRoute decides where that triage runs, and guarantees the nurse is warned about anything
-critical no matter what infrastructure has failed.
+Imagine a rural health center where a single nurse is monitoring ten patients through the
+night. Every ~20 seconds, each patient's vitals (heart rate, SpO₂, temperature, respiration)
+are captured and sent off for triage. NeuraRoute determines where that triage should run, and
+ensures the nurse is alerted to anything critical no matter which pieces of infrastructure
+have failed.
 
 **The connectivity ladder** — the engine picks the first tier that is alive, in this order:
 
