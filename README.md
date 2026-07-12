@@ -1,185 +1,242 @@
-# NeuraRoute — Resilient Edge AI for a Night Ward
+# NeuraRoute
 
-**A single night-shift nurse, ten patients, and an AI brain that refuses to go dark.**
-NeuraRoute forwards each patient's vitals to whichever AI backend is strongest and reachable
-*at that moment* — GPT in the cloud when there's internet, the laptop or phone over the local
-hotspot once that's gone, and a tiny model on an Arduino UNO Q as the final fallback — and it
-**degrades gracefully** as each tier drops away. An always-on watchdog on the Arduino scans
-every vital sign in parallel and pushes a **real notification straight to the doctor's phone**
-the moment it detects a life-threatening emergency — even if the internet, the laptop, the
-phone, and the server have all gone down.
-
-Built for the **Snapdragon Multiverse Hackathon** (Bengaluru, Jul 11–12, 2026). The whole
-system runs on a single laptop with **no cloud account and no AI hardware** — the models are
-stubbed by a local mock server for development.
+**An AI safety net for a night nurse who is watching many patients alone — one that keeps working even when the internet, the laptop, and the phone all fail.**
 
 ---
 
-## The idea
+## What is this?
 
-Imagine a rural health center where a single nurse is monitoring ten patients through the
-night. Every ~20 seconds, each patient's vitals (heart rate, SpO₂, temperature, respiration)
-are captured and sent off for triage. NeuraRoute determines where that triage should run, and
-ensures the nurse is alerted to anything critical no matter which pieces of infrastructure
-have failed.
+Picture a small rural health center at night. One nurse is looking after ten patients. Every
+few seconds, a device reads each patient's vital signs — heart rate, blood-oxygen (SpO₂),
+temperature, and breathing rate — and sends them to an AI to be checked.
 
-**The connectivity ladder** — the engine picks the first tier that is alive, in this order:
+The AI reads the numbers, compares them against that patient's medical history, and decides
+how worried we should be:
 
-| Tier | Brain | When it runs |
+- **normal** — nothing to do
+- **mild** — keep an eye on it
+- **emergency** — the nurse (and the doctor) must be told *right now*
+
+The hard part is not the AI. The hard part is **staying alive when things break.** Rural
+internet drops. Laptops die. Phones run out of battery. NeuraRoute is built so that the
+patient is still being watched no matter what fails.
+
+### The "ladder" — always use the best brain that is still reachable
+
+NeuraRoute keeps a ranked list of AI "brains." For every reading, it uses the **first one on
+the list that is currently alive**, and automatically slides down to the next one when
+something goes offline:
+
+| Order | Brain | Runs when… |
+|:---:|---|---|
+| 1 | **Cloud AI** (the smartest, knows full patient history) | the internet is working |
+| 2 | **Laptop AI** | internet is down, but the laptop is on |
+| 3 | **Phone AI** | the laptop is down too |
+| 4 | **Tiny chip AI** (a small model on an Arduino board) | everything else is gone |
+
+As each brain drops away, the system still works — just with a smaller, simpler AI. This is
+called **graceful degradation**: it gets weaker step by step instead of switching off all at
+once.
+
+### The always-on alarm
+
+Separately from the ladder, the tiny Arduino chip runs a **watchdog** that checks *every*
+reading on its own. If a value crosses a hard danger line (for example heart rate above 135,
+or SpO₂ below 85), or the small on-chip AI spots a clear emergency, it **sends a real
+notification straight to the doctor's phone** — even if the internet, the laptop, the phone,
+and the main program have all failed.
+
+> Built for the **Snapdragon Multiverse Hackathon** (Bengaluru, July 2026). You can run the
+> **entire system on one laptop with no cloud account and no special AI hardware** — the AI
+> parts are replaced by a small built-in "mock" so nothing needs to be downloaded.
+
+---
+
+## Before you start (prerequisites)
+
+Install these once:
+
+| Tool | What it's for | Get it |
 |---|---|---|
-| `cloud-01` | **GPT** (has full patient history) | internet is up |
-| `pc-01` | Laptop local LLM | no internet, laptop on the hotspot |
-| `phone-01` | Phone local LLM | laptop is down too |
-| `arduino-01` | **UNO Q SLM** (records on-chip) | everything else is gone |
-
-Each tier cross-references the reading against the patient's record and returns
-`{severity: normal | mild | emergency, transcript}`. Pull the network (or `kill` a tier) and
-the next reading slides down the ladder — live.
-
-**The failsafe** — the UNO Q runs an *always-on watchdog* on **every** reading, independent of
-the ladder, the internet, and even the engine: a hard numeric tripwire (`HR>135`, `SpO₂<85`, …)
-**or** the local SLM flags an extreme emergency → the doctor's phone gets a real OS notification,
-and the verdict prints to the Arduino IDE serial monitor while the on-board LED blinks.
+| **Python 3.11+** | runs the main program | [python.org](https://www.python.org/downloads/) — on Windows: `winget install Python.Python.3.12` |
+| **Mosquitto** | the "post office" the parts use to talk to each other | Windows: `winget install EclipseFoundation.Mosquitto` · macOS: `brew install mosquitto` · Linux: `apt install mosquitto` |
+| **Node.js 20+** *(only for the phone app)* | builds the doctor's phone screen | [nodejs.org](https://nodejs.org) |
+| **Expo Go** *(only for the phone app)* | the app you open on your phone to see the live screen | App Store / Google Play |
 
 ---
 
-## Architecture
+## Install
 
-```
-  vitals reading (phone app / curl)
-        │  POST /request
-        ▼
-   ┌──────────┐   neuraroute/task/<tier>    ┌─────────────────────────────┐
-   │  ENGINE  │ ───────────────────────────▶│ tier agents (runtime/agent) │
-   │ (ladder) │◀─────────────────────────── │ cloud · pc · phone · arduino │
-   └────┬─────┘   neuraroute/result/<id>    └──────────────┬──────────────┘
-        │  neuraroute/event (/ws)                          │ models.run_model("triage")
-        │  neuraroute/reading ─────────────▶ arduino WATCHDOG (tripwire + SLM)
-        ▼                                                   │ neuraroute/sos
-   Doctor's PHONE APP (Expo)  ◀───────────────────────────┘
-   patient board · tier status · 🚨 local notification
-```
+Run these once, in a terminal, inside the folder where you want the project.
 
-Everything talks over **MQTT** with **frozen JSON contracts** (`contracts/`). The engine
-serves an HTTP + WebSocket API; the phone app connects to `/ws` over the local hotspot.
-Broker address is one env var: **`NEURAROUTE_BROKER`**.
+**Windows (PowerShell):**
 
-**MQTT topics (v2):**
+```powershell
+git clone https://github.com/Sarath-Narendra/neuraroute.git
+cd neuraroute
 
-| Topic | Direction | Purpose |
-|---|---|---|
-| `neuraroute/heartbeat` | tier → engine | liveness ping (~1.5 s) |
-| `neuraroute/task/<device_id>` | engine → tier | triage dispatch |
-| `neuraroute/result/<task_id>` | tier → engine | triage verdict |
-| `neuraroute/reading` | engine → all | raw reading fan-out (watchdog input) |
-| `neuraroute/sos` | watchdog → engine | extreme-emergency alert |
-| `neuraroute/event` | engine → phone app | placements, failover, verdicts, sos |
+py -3.12 -m venv .venv               # create an isolated Python space
+.venv\Scripts\Activate.ps1           # turn it on
+pip install -r requirements.txt      # install the program's needs
 
----
-
-## Repo layout
-
-```
-neuraroute/
-  contracts/   # FROZEN schemas + samples + fakes (topics.py is the source of truth)
-  engine/      # FastAPI + paho-mqtt + asyncio: the ladder scheduler + orchestrator
-  models/      # run_model("triage", …) → {severity, transcript}; registry, LLM + GPT adapters, tripwire
-  servers/     # the inference module: per-device POST /infer servers (laptop · cloud · phone)
-  prompts/     # healthcare_system_prompt.txt — the shared triage system prompt
-  runtime/     # agent.py (a tier) + configs/<tier>.yaml; the arduino agent runs the watchdog
-  mobile/      # the doctor's phone app (Expo / React Native) — the UI
-  arduino/     # UNO Q STM32 sketch: serial-monitor display + severity LED
-  tools/       # mock_llm.py + mock_infer.py — OpenAI-compatible / /infer stubs (no model downloads)
-  scripts/     # dev_up.sh (stack), infer_up.sh (/infer servers), kill_device.sh (failover trigger)
-  data/        # patients.json — the 10-patient ward roster
-  docs/        # hardware bring-up runbooks (UNO Q, phone/Termux)
+cd mobile; npm install; cd ..        # phone-app needs (optional)
 ```
 
----
-
-## Prerequisites
-
-- **Python 3.11+**
-- **Mosquitto** — `brew install mosquitto` (macOS) / `apt install mosquitto` (Linux) / installer (Windows)
-- **Node 20+** and the **Expo Go** app on your phone (for the mobile UI)
-
-## Setup from scratch
+**macOS / Linux:**
 
 ```bash
-git clone git@github.com:Sarath-Narendra/neuraroute.git
+git clone https://github.com/Sarath-Narendra/neuraroute.git
 cd neuraroute
 
 python3 -m venv .venv
-source .venv/bin/activate            # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 
-cd mobile && npm install && cd ..    # phone app deps
+cd mobile && npm install && cd ..
 ```
 
-## Run — the whole system on one laptop, no AI hardware
+---
+
+## Run it (the whole system, on one machine)
+
+This starts everything at once — the "post office," a stand-in AI (so nothing needs
+downloading), the main program, and all four AI brains on the ladder.
+
+**Windows (PowerShell):**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\dev_up.ps1
+```
+
+**macOS / Linux:**
 
 ```bash
 ./scripts/dev_up.sh
 ```
 
-This starts the broker, a **mock LLM** (so no model downloads or GPU are needed), the engine,
-and all four tier agents. Then submit a reading and watch it triage:
+When it's up, the main program is listening at **http://localhost:8080**.
+
+### Try it — send a patient reading
+
+Send a made-up **critical** reading and watch the system flag it as an emergency and fire the
+alarm.
+
+**Windows (PowerShell):**
+
+```powershell
+curl -Method POST http://localhost:8080/request -ContentType application/json `
+     -Body '{"patient_id":"P-03","vitals":{"hr":176,"spo2":79,"temp_c":37,"resp_rate":32}}'
+```
+
+**macOS / Linux:**
 
 ```bash
-# a critical reading -> emergency verdict + watchdog SOS  (engine is on :8080)
 curl -XPOST localhost:8080/request -H 'Content-Type: application/json' \
      -d '{"patient_id":"P-03","vitals":{"hr":176,"spo2":79,"temp_c":37,"resp_rate":32}}'
+```
 
-# drive the failover on stage: kill the top tier, submit again -> it routes one tier down
+### Try it — break a brain and watch it recover
+
+"Kill" the top brain on the ladder, then send another reading. NeuraRoute will notice and
+automatically route the next reading to the brain one step down — live.
+
+**Windows (PowerShell):**
+
+```powershell
+powershell -File scripts\kill_device.ps1 cloud-01
+```
+
+**macOS / Linux:**
+
+```bash
 ./scripts/kill_device.sh cloud-01
 ```
 
-**The phone app:** `cd mobile && npx expo start`, then open it in **Expo Go** on a phone joined
-to the laptop's network/hotspot. It auto-detects the engine at the laptop's IP (override in-app
-if needed), shows the 10-patient board and tier status live, and raises a real OS notification on
-every emergency.
+### Stop everything
 
-## Use the real models (the inference module)
+**Windows (PowerShell):**
 
-The engine is the **Router**; the real per-device model servers are a separate module (`servers/`)
-that each expose `POST /infer` (laptop → GenieX/Qwen on `:8000`, cloud → Groq/Llama-70B on `:8001`,
-phone → llama.cpp SLM on `:8002`). Start all three at once:
-
-```bash
-cp .env.example .env      # then set GROQ_API_KEY for the cloud tier
-./scripts/infer_up.sh     # laptop :8000 · cloud :8001 · phone :8002
+```powershell
+powershell -File scripts\dev_down.ps1
 ```
 
-Then point the ladder at them with **venue mode** — the tier agents call `/infer` over HTTP and map
-the reply into the phone app's schema:
+**macOS / Linux:** press `Ctrl-C` in the window running the stack.
 
-```bash
-export NEURAROUTE_REGISTRY=venue
-export NEURAROUTE_INFER_LAPTOP_URL=http://<laptop-ip>:8000/infer   # default localhost:8000
-export NEURAROUTE_INFER_CLOUD_URL=http://<cloud-host>:8001/infer   # default localhost:8001
-export NEURAROUTE_INFER_PHONE_URL=http://<phone-ip>:8002/infer     # default localhost:8002
-./scripts/dev_up.sh        # engine on :8080, agents bridge to the /infer servers
+---
+
+## The doctor's phone app (optional)
+
+The phone app shows the ten patients, which AI brain is currently in use, and pops up a real
+alert on every emergency.
+
+1. Make sure your phone is on the **same Wi-Fi / hotspot** as the computer.
+2. Start it:
+
+   ```bash
+   cd mobile
+   npx expo start
+   ```
+
+3. Open **Expo Go** on your phone and scan the code that appears.
+
+The app finds the computer automatically. If it can't, you can type the computer's address
+into the app by hand.
+
+---
+
+## Using real AI models (optional, advanced)
+
+By default the system uses a built-in stand-in AI so anyone can run it. When you have real
+models and want to use them, NeuraRoute can point each brain at a real model server instead —
+this is called **venue mode**. The rest of the system (the ladder, the failover, the phone
+app, the alarm) does not change; only *where the thinking happens* changes.
+
+See **`scripts/README.md`** and **`.env.example`** for the exact settings. In short: copy
+`.env.example` to `.env`, fill in your keys, and start the model servers with `infer_up.ps1`
+(Windows) or `infer_up.sh` (macOS / Linux) before bringing the stack up.
+
+---
+
+## What's in this repo
+
+A quick map, so you know where to look:
+
+```
+neuraroute/
+  engine/      the main program — runs the ladder and decides which brain handles each reading
+  models/      the AI logic: reads vitals, compares to history, returns a severity
+  servers/     the real per-device model servers (used only in "venue mode")
+  runtime/     each AI "brain" on the ladder, plus its settings
+  mobile/      the doctor's phone app
+  arduino/     the tiny-chip program: the always-on alarm and status light
+  contracts/   the agreed message formats every part uses to talk
+  prompts/     the instructions given to the AI
+  tools/       stand-in AIs so you can run everything with no downloads
+  scripts/     one-command start / stop / failover helpers
+  data/        the sample list of ten patients
+  docs/        setup notes for the real hardware
 ```
 
-The engine, phone app, failover, and watchdog are unchanged — only where each tier runs inference
-differs. Each `/infer` server still **boots** if its backend is missing (no `geniex`, no
-`GROQ_API_KEY`, no on-device model) and returns a clean error, so a dead tier **fails over down the
-ladder** instead of hanging — that's the demo. `arduino` stays on the local path
-(`NEURAROUTE_LOCAL_BASE_URL`, e.g. llama.cpp) until its SLM `/infer` server lands. No contract
-changes are needed to swap dev ↔ venue; flip `NEURAROUTE_REGISTRY` and restart.
+---
 
-To verify the bridge with no real models, run the mock `/infer` servers on the three ports — they
-speak the exact `/infer` schema:
+## Technical architecture
 
-```bash
-python tools/mock_infer.py 8000 laptop GenieX     Qwen3.5-2B
-python tools/mock_infer.py 8001 cloud  Groq       llama-3.3-70b-versatile
-python tools/mock_infer.py 8002 phone  llama.cpp  Qwen3-1.7B
-```
+> _Detailed technical architecture — component diagram, message flow, and the message
+> formats — will be added here._
+
+---
+
+## The team
+
+Built by:
+
+- **Sankarasetty Jaya Abhiram**
+- **Sarath Narendra Kuppala**
+- **Gowtham Sai Kalyan**
+- **Reddy Eswar Anush**
 
 ---
 
 ## License
 
-[MIT](LICENSE) — all dependencies are open-source (Mosquitto EPL, FastAPI/paho MIT,
-React Native / Expo MIT, llama.cpp MIT, open-weights models with permissive licenses).
+Released under the [MIT License](LICENSE). All the tools it is built on are open-source.

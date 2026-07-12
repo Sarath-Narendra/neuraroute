@@ -52,6 +52,16 @@ function Test-Port($p) {
     try { (New-Object Net.Sockets.TcpClient).Connect("localhost", $p); return $true } catch { return $false }
 }
 
+# Guard: refuse to stack a second copy on top of a running one. Duplicate agents share a
+# device_id, so kill_device.ps1 would drop one twin while the other keeps heartbeating and
+# the tier never fails over. Tear the old stack down first.
+$running = @(Get-CimInstance Win32_Process | Where-Object {
+    $_.Name -match 'python' -and ($_.CommandLine -match 'agent\.py' -or $_.CommandLine -match 'engine\.app')
+})
+if ($running.Count -gt 0) {
+    throw "A NeuraRoute stack is already running ($($running.Count) process(es)). Stop it first: powershell -File scripts\dev_down.ps1"
+}
+
 function Launch($name, $argList) {
     $log = Join-Path $LogsDir "$name.log"
     $proc = Start-Process -FilePath $Py -ArgumentList $argList -WorkingDirectory $RepoRoot `
