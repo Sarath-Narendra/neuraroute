@@ -13,6 +13,10 @@ Which model + adapter runs `triage` on each tier. Pick the registry with one env
                                  phone  -> llama.cpp SLM at NEURAROUTE_INFER_PHONE_URL.
                                  arduino stays local until its SLM /infer server lands.
 
+    NEURAROUTE_REGISTRY=showcase — ONE real tier: pc-01 = GenieX/Qwen3-8B on the NPU
+                                 (NEURAROUTE_INFER_LAPTOP_URL); cloud/phone/arduino stay MOCK.
+                                 Real on-device inference to show off, mock failover to stay safe.
+
 `type` drives run_model's routing: "infer_http" -> models/infer_client (POST /infer),
 "cloud" -> models/cloud_adapter (canned mock), anything else -> the local op via llm_client.
 """
@@ -51,7 +55,41 @@ VENUE_REGISTRY = {
 }
 
 
-_REGISTRIES = {"dev": DEV_REGISTRY, "venue": VENUE_REGISTRY}
+# ==========================================================
+# showcase — ONE real tier (pc-01 = GenieX/Qwen3-8B on the NPU), everything else stays MOCK.
+# The safe way to demo real on-device inference without betting the failover theater on it:
+# the deep tiers stay bulletproof mocks, and because the real tier is on-device it has NO
+# network dependency. Demo move: kill cloud-01 -> the reading lands on the REAL NPU (pc-01).
+# Additive + reversible — dev and venue are untouched; needs the laptop /infer server running
+# (scripts/infer_up.sh or `uvicorn servers.laptop_server:app --port 8000`).
+# ==========================================================
+SHOWCASE_REGISTRY = {
+    "surface":  {"triage": {"model": "Qwen3-8B / GenieX (NPU)", "adapter": "infer_http",
+                            "type": "infer_http", "infer_url": INFER_LAPTOP_URL}},   # REAL on-device
+    "phone":    DEV_REGISTRY["phone"],     # mock
+    "arduino":  DEV_REGISTRY["arduino"],   # mock
+    "cloud":    DEV_REGISTRY["cloud"],     # mock (kept off the internet on purpose)
+}
+
+
+# ==========================================================
+# cloudreal — ONE real tier: cloud-01 = Groq/Llama-70B over the INTERNET; pc/phone/arduino
+# stay MOCK. The mirror of `showcase`: this makes "turn off the internet -> the cloud call
+# fails -> the reading degrades to the on-device laptop" a REAL, physical demo. Needs
+# GROQ_API_KEY + the cloud /infer server (servers/cloud_server.py on :8001). The pc tier stays
+# a local mock ON PURPOSE — it's the offline fallback and must NOT need the internet.
+# Additive + reversible: dev/venue/showcase are untouched; flip back to `dev` in one env var.
+# ==========================================================
+CLOUDREAL_REGISTRY = {
+    "surface":  DEV_REGISTRY["surface"],   # mock — the laptop-local fallback when internet dies
+    "phone":    DEV_REGISTRY["phone"],     # mock
+    "arduino":  DEV_REGISTRY["arduino"],   # mock
+    "cloud":    VENUE_REGISTRY["cloud"],   # REAL Groq/Llama-70B via /infer :8001 (needs internet)
+}
+
+
+_REGISTRIES = {"dev": DEV_REGISTRY, "venue": VENUE_REGISTRY, "showcase": SHOWCASE_REGISTRY,
+               "cloudreal": CLOUDREAL_REGISTRY}
 ACTIVE_REGISTRY = _REGISTRIES.get(os.environ.get("NEURAROUTE_REGISTRY", "dev"), DEV_REGISTRY)
 
 

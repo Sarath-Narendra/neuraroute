@@ -97,6 +97,20 @@ else
   echo "  local LLM    using $NEURAROUTE_LOCAL_BASE_URL (mock LLM skipped)"
 fi
 
+# 2.5) cloud /infer server (Groq/Llama-70B) — only when the cloud tier is REAL
+#      (cloudreal/venue). In dev mode the cloud tier is a local mock, so this is skipped.
+#      Runs locally; only its outbound Groq call needs the internet -> pull the plug and
+#      the ladder fails DOWN to pc automatically. That failover is the demo.
+if [[ "$NEURAROUTE_REGISTRY" == "cloudreal" || "$NEURAROUTE_REGISTRY" == "venue" ]]; then
+  launch "cloud_infer" "cd '$REPO_ROOT' && exec '$PY' -m uvicorn servers.cloud_server:app --host 0.0.0.0 --port 8001"
+  sleep 1
+  if [[ -z "${GROQ_API_KEY:-}" ]]; then
+    echo "  cloud_infer  WARNING: GROQ_API_KEY empty — cloud tier will fail over to pc every time"
+  else
+    echo "  cloud_infer  Groq server on :8001 (registry=$NEURAROUTE_REGISTRY)"
+  fi
+fi
+
 # 3) engine
 launch "engine" "cd '$REPO_ROOT' && exec '$PY' -m engine.app"
 sleep 2
