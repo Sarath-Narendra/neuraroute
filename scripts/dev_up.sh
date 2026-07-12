@@ -44,6 +44,31 @@ export NEURAROUTE_PORT="${NEURAROUTE_PORT:-8080}"   # 8000/8001 belong to the /i
 export NEURAROUTE_CLOUD_MOCK="${NEURAROUTE_CLOUD_MOCK:-true}"
 export NEURAROUTE_REGISTRY="${NEURAROUTE_REGISTRY:-dev}"   # 'venue' -> real /infer servers
 
+# --- single-instance guard -------------------------------------------------------------
+# Stacking a second dev_up on top of a live one is the root of the failover-demo flakiness:
+# two agents heartbeat with the SAME MQTT client_id (they flap, and one always survives a
+# kill_device), and the new engine can't bind the port the old one still holds. Refuse to
+# start on top of a running stack — tear the old one down first.
+engine_port_busy() {
+  "$PY" -c "import socket,sys; s=socket.socket(); s.settimeout(0.5); sys.exit(0 if s.connect_ex(('127.0.0.1',int('$NEURAROUTE_PORT')))==0 else 1)" >/dev/null 2>&1
+}
+agents_alive() {
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      local n
+      n="$(powershell -NoProfile -Command "(@(Get-CimInstance Win32_Process | Where-Object { \$_.Name -like 'python*' -and \$_.CommandLine -like '*agent.py*' })).Count" 2>/dev/null | tr -dc '0-9')"
+      [[ -n "$n" && "$n" -gt 0 ]] ;;
+    *)
+      pgrep -f "runtime/agent.py" >/dev/null 2>&1 ;;
+  esac
+}
+if engine_port_busy || agents_alive; then
+  echo "ERROR: NeuraRoute already appears to be running" >&2
+  echo "       (engine port $NEURAROUTE_PORT is busy, or tier agents are still alive)." >&2
+  echo "       Tear the old stack down first:  ./scripts/dev_down.sh" >&2
+  exit 1
+fi
+
 started=()
 launch() {  # name  command
   local name="$1" cmd="$2"

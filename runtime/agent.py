@@ -97,6 +97,7 @@ class DeviceAgent:
         self.shutdown_event = threading.Event()
         self.heartbeat_thread: threading.Thread | None = None
         self.connected = False
+        self._pid_file: Path | None = None
 
     def _load_config(self, config_path: Path) -> dict[str, Any]:
         if not config_path.exists():
@@ -129,6 +130,7 @@ class DeviceAgent:
     def start(self) -> None:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
         LOGGER.info("Starting device agent for %s (watchdog=%s)", self.device_id, self.watchdog)
+        self._write_pidfile()
         self._open_serial()
         self.client.connect_async(self.broker_host, self.broker_port, keepalive=60)
         self.client.loop_start()
@@ -154,7 +156,32 @@ class DeviceAgent:
         if self.client.is_connected():
             self.client.disconnect()
         self.client.loop_stop()
+        self._remove_pidfile()
         LOGGER.info("Agent stopped for %s", self.device_id)
+
+    def _write_pidfile(self) -> None:
+        """Record THIS python process's PID so kill_device.sh / dev_down.sh hit the real agent.
+
+        On Git Bash for Windows `exec` does NOT replace the launcher shell (there is no
+        image-replacing execve for a native .exe), so the PID dev_up.sh captured via `$!` is
+        the bash WRAPPER, not this python. Killing that wrapper orphans us — we keep
+        heartbeating and the tier never goes stale. Overwriting the pidfile with our own PID
+        makes a kill actually land on the process that heartbeats.
+        """
+        try:
+            self._pid_file = Path(ROOT_DIR) / "run" / "pids" / f"{self.device_id}.pid"
+            self._pid_file.parent.mkdir(parents=True, exist_ok=True)
+            self._pid_file.write_text(str(os.getpid()), encoding="utf-8")
+        except Exception as exc:  # best-effort — never block startup on bookkeeping
+            LOGGER.debug("could not write pidfile: %s", exc)
+            self._pid_file = None
+
+    def _remove_pidfile(self) -> None:
+        if self._pid_file is not None:
+            try:
+                self._pid_file.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     # --- heartbeat: liveness only (the ladder routes on reachability, not load) ------
     def _heartbeat_loop(self) -> None:

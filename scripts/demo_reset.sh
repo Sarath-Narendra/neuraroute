@@ -14,15 +14,17 @@ ARCHIVE_DIR="$LOGS_DIR/archive"
 
 mkdir -p "$PIDS_DIR" "$LOGS_DIR" "$ARCHIVE_DIR"
 
-if compgen -G "$PIDS_DIR"/*.pid >/dev/null 2>&1; then
+# Tear the previous stack down ROBUSTLY. A pidfile-only kill hits the bash wrappers (Git
+# Bash's `exec` doesn't collapse them on Windows) and orphans the real pythons, which then
+# collide with the fresh run. dev_down.sh sweeps by process signature so nothing survives.
+if [[ -f "$REPO_ROOT/scripts/dev_down.sh" ]]; then
+  bash "$REPO_ROOT/scripts/dev_down.sh" || true
+elif compgen -G "$PIDS_DIR"/*.pid >/dev/null 2>&1; then
   for pid_file in "$PIDS_DIR"/*.pid; do
-    if [[ -f "$pid_file" ]]; then
-      pid="$(cat "$pid_file")"
-      if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
-        kill -9 "$pid" 2>/dev/null || true
-      fi
-      rm -f "$pid_file"
-    fi
+    [[ -f "$pid_file" ]] || continue
+    pid="$(cat "$pid_file")"
+    [[ -n "$pid" ]] && kill -9 "$pid" 2>/dev/null || true
+    rm -f "$pid_file"
   done
 fi
 
