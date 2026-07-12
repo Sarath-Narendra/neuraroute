@@ -45,7 +45,7 @@ DEV_REGISTRY = {
 VENUE_REGISTRY = {
     "surface":  {"triage": {"model": "Qwen3.5-2B / GenieX", "adapter": "infer_http",
                             "type": "infer_http", "infer_url": INFER_LAPTOP_URL}},
-    "phone":    {"triage": {"model": "Qwen3-1.7B / llama.cpp", "adapter": "infer_http",
+    "phone":    {"triage": {"model": "Gemma 3 1B / Ollama", "adapter": "infer_http",
                             "type": "infer_http", "infer_url": INFER_PHONE_URL}},
     # arduino /infer server is the SLM part — still pending; keep it on the local path so
     # arduino-01 stays a live tier via the dev mock / any llama.cpp server (see models/arduino.py).

@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
+import { ENGINE_PORT } from "./src/config";
 import { LADDER, Severity, TIER_LABEL, Vitals } from "./src/contracts";
 import { PatientState } from "./src/store";
 import { C, sevBg, sevColor, sevLabel } from "./src/theme";
@@ -84,7 +85,7 @@ function Board() {
             <Text style={styles.emptyText}>
               {conn === "connected" ? "Waiting for patient roster…" : "Connecting to the engine…"}
             </Text>
-            <Text style={styles.emptyHint}>Engine: {nr.host}:8000</Text>
+            <Text style={styles.emptyHint}>Engine: {nr.host}:{ENGINE_PORT}</Text>
           </View>
         }
         renderItem={({ item }) => (
