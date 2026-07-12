@@ -231,3 +231,85 @@ To restart everything cleanly: stop the dev_up background process, then re-run 0
 
 # How to report after each phase
 `Phase N: PASS | BLOCKED — <one line>. Next: <the single command the human must run, or "you continue">.`
+
+---
+
+# APPENDIX — GO FULLY REAL (venue mode, no mocks)
+
+> Use this **instead of** dev-mode Phase 0 when you want **real model inference on every tier**.
+> Only the Arduino's **sensor readings** stay simulated (injected via the phone app / curl) —
+> everything else is real: cloud GPT (Groq), laptop LLM (GenieX), phone LLM (llama.cpp), arduino
+> SLM (llama.cpp), plus real routing and failover.
+>
+> ⚠️ **This is the higher-risk path** — it needs the internet, an API key, and on-device models,
+> any of which can fail at the venue. **Dev mode (default) stays your fallback** — flipping back is
+> one env var. **Rehearse BOTH.** Do not attempt this inside the final debug buffer unless dev mode
+> is already green and rehearsed.
+
+## Golden rule: verify each real backend on its OWN before wiring the ladder
+A tier is only "real" once its `/infer` (or llama.cpp) answers with a genuine model response — **not**
+the mock's canned text. Verify each of the four independently first.
+
+### Cloud (`cloud-01`) — Groq / Llama-3.3-70B · Surface · needs internet
+1. 🙋 Get a free key at **console.groq.com** → put in `.env`: `GROQ_API_KEY=gsk_...`
+2. Start the cloud `/infer` server (see Launch below) and verify a **real** answer:
+   ```bash
+   curl -s localhost:8001/infer -H 'Content-Type: application/json' \
+     -d '{"patient":"Patient P-03, 58, post-MI. CURRENT sensor reading: hr 176, spo2 79, temp_c 37, resp_rate 32."}' | head -c 400
+   ```
+   **Real ⇒** a `"response"` object with a model-written `summary`/`next_action`. **Error envelope
+   (`"error": "GROQ_API_KEY not set" / unreachable`) ⇒** key missing or no internet → fix before wiring.
+
+### Laptop (`pc-01`) — GenieX / Qwen · Surface · on-device
+1. 🙋 Install the **GenieX** CLI and pull the model named in `models/laptop.py` (`ai-hub-models/Qwen3-8B`).
+   Confirm `geniex --version` (or `geniex infer --help`) runs.
+2. Verify: `curl -s localhost:8000/infer -H 'Content-Type: application/json' -d '{"patient":"...hr 176..."}'`
+   → real `"response"`. GenieX cold-start can take 10-30 s.
+
+### Phone (`phone-01`) — llama.cpp + GGUF · the phone (Termux)
+1. 🙋 On the phone: run a **llama.cpp server** with a small GGUF (Qwen3-1.7B Q4) exposing the
+   OpenAI-compatible API on `:1234`. In `.env`: `NEURAROUTE_PHONE_LLM_URL=http://<phone-ip>:1234/v1`.
+2. Verify the phone `/infer` bridge: `curl -s http://<phone-ip>:8002/infer -d '{"patient":"...hr 176..."}'`
+   (or curl the phone's `:1234/v1/chat/completions` directly).
+
+### Arduino (`arduino-01`) — llama.cpp SLM · the UNO Q
+1. 🙋 On the UNO Q Linux side: run **llama.cpp** with a tiny GGUF (Qwen2.5-0.5B Q4, fits 4 GB) on `:1234`.
+   In `.env`: `NEURAROUTE_LOCAL_BASE_URL=http://<unoq-ip>:1234/v1` (or `localhost` if the agent runs on the UNO Q).
+2. **NOTE:** the arduino tier uses the **local path** (`llm_client`), so a real llama.cpp here makes it a
+   **real tier today — you do NOT need `models/arduino.py`** (that stub is only the optional `/infer`-server
+   packaging). Verify on the UNO Q: `curl localhost:1234/v1/chat/completions -d '{"messages":[{"role":"user","content":"hi"}]}'`.
+
+## `.env` for real mode (copy into `.env`, fill the brackets)
+```bash
+NEURAROUTE_REGISTRY=venue
+NEURAROUTE_BROKER=<surface-ip>
+GROQ_API_KEY=gsk_...
+NEURAROUTE_INFER_LAPTOP_URL=http://localhost:8000/infer
+NEURAROUTE_INFER_CLOUD_URL=http://localhost:8001/infer
+NEURAROUTE_INFER_PHONE_URL=http://localhost:8002/infer
+NEURAROUTE_PHONE_LLM_URL=http://<phone-ip>:1234/v1
+NEURAROUTE_LOCAL_BASE_URL=http://<unoq-ip>:1234/v1
+NEURAROUTE_PORT=8080
+```
+
+## Launch (two terminals on the Surface)
+```bash
+# Terminal 1 — the real /infer model servers (Surface hosts laptop+cloud; phone_server bridges to the phone)
+export PATH="$PATH:/c/Program Files/mosquitto"; ./scripts/infer_up.sh
+# Terminal 2 — broker + engine + the 4 tier agents, in venue mode (reads .env)
+export PATH="$PATH:/c/Program Files/mosquitto"; ./scripts/dev_up.sh
+```
+Because `NEURAROUTE_LOCAL_BASE_URL` is set, dev_up **skips the mock LLM** — nothing is faked.
+(For the true multi-device demo, the phone and UNO Q also run their **own** agents per
+`docs/runbook-phone.md` / `docs/runbook-arduino.md`; then killing that physical device drops its tier.)
+
+## Verify it's REAL end-to-end
+Fire a reading (phone app "Critical" preset, or the Phase 0.6 curl) and confirm:
+- the transcript reads like a **real model** — NOT `[MOCK GPT]` and NOT the mock_infer canned line;
+- `run/logs/engine.log` shows `... via GPT (cloud)` with a genuine note;
+- **Internet OFF now really fails over:** the cloud Groq call errors → engine `FAILOVER` → `pc-01`. In venue
+  mode this is real (in dev mode it was a no-op — you had to kill the tier). Killing tiers still works too.
+
+## Fall back in one line
+Real model flaky at the venue? Set `NEURAROUTE_REGISTRY=dev` (or unset it), don't run `infer_up.sh`,
+run `dev_up.sh`. You're back on the bulletproof mock demo instantly.
