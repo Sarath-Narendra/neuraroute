@@ -68,15 +68,24 @@ cleanup() {
 trap cleanup INT TERM
 
 # 1) broker
-if ! nc -z localhost 1883 >/dev/null 2>&1; then
-  if command -v mosquitto >/dev/null 2>&1; then
-    mosquitto -d; sleep 1
-    echo "  mosquitto    started on :1883"
+#    Portable "is 1883 listening?" probe — Git Bash on Windows has no `nc`, so use Python.
+broker_up() {
+  "$PY" -c "import socket,sys; s=socket.socket(); s.settimeout(1); sys.exit(0 if s.connect_ex(('127.0.0.1',1883))==0 else 1)" >/dev/null 2>&1
+}
+if broker_up; then
+  echo "  mosquitto    already up on :1883"
+elif command -v mosquitto >/dev/null 2>&1; then
+  # Background it with the repo config (listener 0.0.0.0 + anonymous, so the phone/UNO Q can
+  # connect at the venue). `mosquitto -d` is unreliable on Windows, so background + poll instead.
+  launch "mosquitto" "exec mosquitto -c '$REPO_ROOT/scripts/mosquitto.conf'"
+  for _ in $(seq 1 20); do broker_up && break; sleep 0.3; done
+  if broker_up; then
+    echo "  mosquitto    started on :1883 (scripts/mosquitto.conf)"
   else
-    echo "ERROR: mosquitto not found (brew install mosquitto)"; exit 1
+    echo "ERROR: mosquitto did not come up on :1883 — see run/logs/mosquitto.log"; exit 1
   fi
 else
-  echo "  mosquitto    already up on :1883"
+  echo "ERROR: mosquitto not found on PATH (install it; on Windows add 'C:\\Program Files\\mosquitto')"; exit 1
 fi
 
 # 2) mock LLM for the local tiers — unless a real LM Studio URL is provided
@@ -101,7 +110,8 @@ for cfg in cloud:cloud-01 pc:pc-01 phone:phone-01 arduino:arduino-01; do
 done
 
 echo
-echo "NeuraRoute up (registry=$NEURAROUTE_REGISTRY). Engine: http://$(ipconfig getifaddr en0 2>/dev/null || echo localhost):${NEURAROUTE_PORT}"
+LAN_IP="$("$PY" -c "import socket; s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.connect(('8.8.8.8',80)); print(s.getsockname()[0]); s.close()" 2>/dev/null || echo localhost)"
+echo "NeuraRoute up (registry=$NEURAROUTE_REGISTRY). Engine: http://${LAN_IP}:${NEURAROUTE_PORT}"
 if [[ "$NEURAROUTE_REGISTRY" == "venue" ]]; then
   echo "  venue mode: laptop tier -> ${NEURAROUTE_INFER_LAPTOP_URL:-http://localhost:8000/infer}, cloud tier -> ${NEURAROUTE_INFER_CLOUD_URL:-http://localhost:8001/infer}"
   echo "  (make sure the /infer inference servers are running separately)"
